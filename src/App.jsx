@@ -100,54 +100,41 @@ const GRADES = ["A","B","C","Ungraded"];
 const HTF_BIASES = ["Bullish","Bearish","Ranging","Uncertain"];
 const MARKET_STRUCTURES = ["With Trend","Counter Trend","Range","Breakout","Reversal"];
 const TRADE_MODES = ["Backtest","Paper","Live"];
-// ─── Economic Calendar Jan 2024 – Mar 2025 (ET times) ──────────────────────
-// Gold-relevant events only: NFP, CPI, PPI, FOMC, Powell, Unemployment Claims
-// Sources: BLS, Fed Reserve official release schedule
-// Format: [YYYY-MM-DD, HH:MM, "Event Name", "Impact"]
-const NEWS_CALENDAR_2024 = [
-
-  // ── JANUARY 2024 ──
+// ─── Economic Calendar 2024–2026 (ET times) ─────────────────────────────────
+// Gold-relevant US events: NFP, CPI, PPI, FOMC, Powell, Jobless Claims
+// All times Eastern. Format: [YYYY-MM-DD, HH:MM, eventName, impact]
+const NEWS_CALENDAR = [
+  // ── 2024 ──────────────────────────────────────────────────────────────────
   ["2024-01-05","08:30","NFP","High"],
   ["2024-01-11","08:30","CPI","High"],
   ["2024-01-12","08:30","PPI","High"],
   ["2024-01-18","08:30","Unemployment Claims","Medium"],
   ["2024-01-25","08:30","Unemployment Claims","Medium"],
   ["2024-01-31","14:00","FOMC","High"],
-  ["2024-01-31","14:30","Jerome Powell Speech","High"],
-
-  // ── FEBRUARY 2024 ──
   ["2024-02-01","08:30","Unemployment Claims","Medium"],
   ["2024-02-02","08:30","NFP","High"],
   ["2024-02-08","08:30","Unemployment Claims","Medium"],
   ["2024-02-13","08:30","CPI","High"],
-  ["2024-02-15","08:30","PPI","High"],
+  ["2024-02-14","08:30","PPI","High"],
   ["2024-02-15","08:30","Unemployment Claims","Medium"],
+  ["2024-02-20","08:30","Unemployment Claims","Medium"],
   ["2024-02-22","08:30","Unemployment Claims","Medium"],
   ["2024-02-29","08:30","Unemployment Claims","Medium"],
-
-  // ── MARCH 2024 ──
+  ["2024-03-01","08:30","NFP","High"],
   ["2024-03-07","08:30","Unemployment Claims","Medium"],
-  ["2024-03-08","08:30","NFP","High"],
   ["2024-03-12","08:30","CPI","High"],
-  ["2024-03-14","08:30","PPI","High"],
+  ["2024-03-13","08:30","PPI","High"],
   ["2024-03-14","08:30","Unemployment Claims","Medium"],
   ["2024-03-20","14:00","FOMC","High"],
-  ["2024-03-20","14:30","Jerome Powell Speech","High"],
   ["2024-03-21","08:30","Unemployment Claims","Medium"],
   ["2024-03-28","08:30","Unemployment Claims","Medium"],
-
-  // ── APRIL 2024 ──
-  ["2024-04-04","08:30","Unemployment Claims","Medium"],
   ["2024-04-05","08:30","NFP","High"],
   ["2024-04-10","08:30","CPI","High"],
   ["2024-04-11","08:30","PPI","High"],
   ["2024-04-11","08:30","Unemployment Claims","Medium"],
   ["2024-04-18","08:30","Unemployment Claims","Medium"],
   ["2024-04-25","08:30","Unemployment Claims","Medium"],
-
-  // ── MAY 2024 ──
   ["2024-05-01","14:00","FOMC","High"],
-  ["2024-05-01","14:30","Jerome Powell Speech","High"],
   ["2024-05-02","08:30","Unemployment Claims","Medium"],
   ["2024-05-03","08:30","NFP","High"],
   ["2024-05-09","08:30","Unemployment Claims","Medium"],
@@ -156,29 +143,22 @@ const NEWS_CALENDAR_2024 = [
   ["2024-05-16","08:30","Unemployment Claims","Medium"],
   ["2024-05-23","08:30","Unemployment Claims","Medium"],
   ["2024-05-30","08:30","Unemployment Claims","Medium"],
-
-  // ── JUNE 2024 ──
   ["2024-06-06","08:30","Unemployment Claims","Medium"],
   ["2024-06-07","08:30","NFP","High"],
   ["2024-06-12","08:30","CPI","High"],
   ["2024-06-12","14:00","FOMC","High"],
-  ["2024-06-12","14:30","Jerome Powell Speech","High"],
   ["2024-06-13","08:30","PPI","High"],
   ["2024-06-13","08:30","Unemployment Claims","Medium"],
   ["2024-06-20","08:30","Unemployment Claims","Medium"],
   ["2024-06-27","08:30","Unemployment Claims","Medium"],
-
-  // ── JULY 2024 ──
-  ["2024-07-04","08:30","Unemployment Claims","Medium"],
+  ["2024-07-02","08:30","Unemployment Claims","Medium"],
   ["2024-07-05","08:30","NFP","High"],
   ["2024-07-11","08:30","CPI","High"],
   ["2024-07-12","08:30","PPI","High"],
+  ["2024-07-11","08:30","Unemployment Claims","Medium"],
   ["2024-07-18","08:30","Unemployment Claims","Medium"],
   ["2024-07-25","08:30","Unemployment Claims","Medium"],
   ["2024-07-31","14:00","FOMC","High"],
-  ["2024-07-31","14:30","Jerome Powell Speech","High"],
-
-  // ── AUGUST 2024 ──
   ["2024-08-01","08:30","Unemployment Claims","Medium"],
   ["2024-08-02","08:30","NFP","High"],
   ["2024-08-08","08:30","Unemployment Claims","Medium"],
@@ -188,94 +168,175 @@ const NEWS_CALENDAR_2024 = [
   ["2024-08-22","08:30","Unemployment Claims","Medium"],
   ["2024-08-23","10:00","Jerome Powell Speech","High"],
   ["2024-08-29","08:30","Unemployment Claims","Medium"],
-
-  // ── SEPTEMBER 2024 ──
   ["2024-09-05","08:30","Unemployment Claims","Medium"],
   ["2024-09-06","08:30","NFP","High"],
   ["2024-09-11","08:30","CPI","High"],
   ["2024-09-12","08:30","PPI","High"],
   ["2024-09-12","08:30","Unemployment Claims","Medium"],
   ["2024-09-18","14:00","FOMC","High"],
-  ["2024-09-18","14:30","Jerome Powell Speech","High"],
   ["2024-09-19","08:30","Unemployment Claims","Medium"],
   ["2024-09-26","08:30","Unemployment Claims","Medium"],
-
-  // ── OCTOBER 2024 ──
   ["2024-10-03","08:30","Unemployment Claims","Medium"],
   ["2024-10-04","08:30","NFP","High"],
   ["2024-10-10","08:30","CPI","High"],
   ["2024-10-11","08:30","PPI","High"],
-  ["2024-10-11","08:30","Unemployment Claims","Medium"],
+  ["2024-10-10","08:30","Unemployment Claims","Medium"],
   ["2024-10-17","08:30","Unemployment Claims","Medium"],
   ["2024-10-24","08:30","Unemployment Claims","Medium"],
   ["2024-10-31","08:30","Unemployment Claims","Medium"],
-
-  // ── NOVEMBER 2024 ──
   ["2024-11-01","08:30","NFP","High"],
   ["2024-11-07","14:00","FOMC","High"],
-  ["2024-11-07","14:30","Jerome Powell Speech","High"],
   ["2024-11-07","08:30","Unemployment Claims","Medium"],
   ["2024-11-13","08:30","CPI","High"],
   ["2024-11-14","08:30","PPI","High"],
   ["2024-11-14","08:30","Unemployment Claims","Medium"],
   ["2024-11-21","08:30","Unemployment Claims","Medium"],
   ["2024-11-27","08:30","Unemployment Claims","Medium"],
-
-  // ── DECEMBER 2024 ──
   ["2024-12-05","08:30","Unemployment Claims","Medium"],
   ["2024-12-06","08:30","NFP","High"],
   ["2024-12-11","08:30","CPI","High"],
   ["2024-12-12","08:30","PPI","High"],
   ["2024-12-12","08:30","Unemployment Claims","Medium"],
   ["2024-12-18","14:00","FOMC","High"],
-  ["2024-12-18","14:30","Jerome Powell Speech","High"],
   ["2024-12-19","08:30","Unemployment Claims","Medium"],
   ["2024-12-26","08:30","Unemployment Claims","Medium"],
-
-  // ── JANUARY 2025 ──
+  // ── 2025 ──────────────────────────────────────────────────────────────────
   ["2025-01-02","08:30","Unemployment Claims","Medium"],
-  ["2025-01-09","08:30","Unemployment Claims","Medium"],
   ["2025-01-10","08:30","NFP","High"],
   ["2025-01-15","08:30","CPI","High"],
   ["2025-01-16","08:30","PPI","High"],
   ["2025-01-16","08:30","Unemployment Claims","Medium"],
   ["2025-01-23","08:30","Unemployment Claims","Medium"],
   ["2025-01-29","14:00","FOMC","High"],
-  ["2025-01-29","14:30","Jerome Powell Speech","High"],
   ["2025-01-30","08:30","Unemployment Claims","Medium"],
-
-  // ── FEBRUARY 2025 ──
-  ["2025-02-06","08:30","Unemployment Claims","Medium"],
   ["2025-02-07","08:30","NFP","High"],
   ["2025-02-12","08:30","CPI","High"],
   ["2025-02-13","08:30","PPI","High"],
   ["2025-02-13","08:30","Unemployment Claims","Medium"],
   ["2025-02-20","08:30","Unemployment Claims","Medium"],
   ["2025-02-27","08:30","Unemployment Claims","Medium"],
-
-  // ── MARCH 2025 ──
   ["2025-03-06","08:30","Unemployment Claims","Medium"],
   ["2025-03-07","08:30","NFP","High"],
   ["2025-03-12","08:30","CPI","High"],
   ["2025-03-13","08:30","PPI","High"],
   ["2025-03-13","08:30","Unemployment Claims","Medium"],
   ["2025-03-19","14:00","FOMC","High"],
-  ["2025-03-19","14:30","Jerome Powell Speech","High"],
   ["2025-03-20","08:30","Unemployment Claims","Medium"],
   ["2025-03-27","08:30","Unemployment Claims","Medium"],
+  ["2025-04-03","08:30","Unemployment Claims","Medium"],
+  ["2025-04-04","08:30","NFP","High"],
+  ["2025-04-10","08:30","CPI","High"],
+  ["2025-04-11","08:30","PPI","High"],
+  ["2025-04-10","08:30","Unemployment Claims","Medium"],
+  ["2025-04-17","08:30","Unemployment Claims","Medium"],
+  ["2025-04-24","08:30","Unemployment Claims","Medium"],
+  ["2025-05-01","08:30","Unemployment Claims","Medium"],
+  ["2025-05-02","08:30","NFP","High"],
+  ["2025-05-07","14:00","FOMC","High"],
+  ["2025-05-08","08:30","Unemployment Claims","Medium"],
+  ["2025-05-13","08:30","CPI","High"],
+  ["2025-05-15","08:30","PPI","High"],
+  ["2025-05-15","08:30","Unemployment Claims","Medium"],
+  ["2025-05-22","08:30","Unemployment Claims","Medium"],
+  ["2025-05-29","08:30","Unemployment Claims","Medium"],
+  ["2025-06-05","08:30","Unemployment Claims","Medium"],
+  ["2025-06-06","08:30","NFP","High"],
+  ["2025-06-11","08:30","CPI","High"],
+  ["2025-06-12","08:30","PPI","High"],
+  ["2025-06-12","08:30","Unemployment Claims","Medium"],
+  ["2025-06-18","14:00","FOMC","High"],
+  ["2025-06-19","08:30","Unemployment Claims","Medium"],
+  ["2025-06-26","08:30","Unemployment Claims","Medium"],
+  ["2025-07-03","08:30","Unemployment Claims","Medium"],
+  ["2025-07-03","08:30","NFP","High"],
+  ["2025-07-10","08:30","Unemployment Claims","Medium"],
+  ["2025-07-15","08:30","CPI","High"],
+  ["2025-07-16","08:30","PPI","High"],
+  ["2025-07-17","08:30","Unemployment Claims","Medium"],
+  ["2025-07-24","08:30","Unemployment Claims","Medium"],
+  ["2025-07-30","14:00","FOMC","High"],
+  ["2025-07-31","08:30","Unemployment Claims","Medium"],
+  ["2025-08-01","08:30","NFP","High"],
+  ["2025-08-07","08:30","Unemployment Claims","Medium"],
+  ["2025-08-13","08:30","CPI","High"],
+  ["2025-08-14","08:30","PPI","High"],
+  ["2025-08-14","08:30","Unemployment Claims","Medium"],
+  ["2025-08-21","08:30","Unemployment Claims","Medium"],
+  ["2025-08-28","08:30","Unemployment Claims","Medium"],
+  ["2025-09-04","08:30","Unemployment Claims","Medium"],
+  ["2025-09-05","08:30","NFP","High"],
+  ["2025-09-10","08:30","CPI","High"],
+  ["2025-09-11","08:30","PPI","High"],
+  ["2025-09-11","08:30","Unemployment Claims","Medium"],
+  ["2025-09-17","14:00","FOMC","High"],
+  ["2025-09-18","08:30","Unemployment Claims","Medium"],
+  ["2025-09-25","08:30","Unemployment Claims","Medium"],
+  ["2025-10-02","08:30","Unemployment Claims","Medium"],
+  ["2025-10-03","08:30","NFP","High"],
+  ["2025-10-09","08:30","Unemployment Claims","Medium"],
+  ["2025-10-15","08:30","CPI","High"],
+  ["2025-10-16","08:30","PPI","High"],
+  ["2025-10-16","08:30","Unemployment Claims","Medium"],
+  ["2025-10-23","08:30","Unemployment Claims","Medium"],
+  ["2025-10-29","14:00","FOMC","High"],
+  ["2025-10-30","08:30","Unemployment Claims","Medium"],
+  ["2025-11-06","08:30","Unemployment Claims","Medium"],
+  ["2025-11-07","08:30","NFP","High"],
+  ["2025-11-13","08:30","Unemployment Claims","Medium"],
+  ["2025-11-13","08:30","CPI","High"],
+  ["2025-11-14","08:30","PPI","High"],
+  ["2025-11-20","08:30","Unemployment Claims","Medium"],
+  ["2025-11-26","08:30","Unemployment Claims","Medium"],
+  ["2025-12-04","08:30","Unemployment Claims","Medium"],
+  ["2025-12-05","08:30","NFP","High"],
+  ["2025-12-10","08:30","CPI","High"],
+  ["2025-12-11","08:30","PPI","High"],
+  ["2025-12-11","08:30","Unemployment Claims","Medium"],
+  ["2025-12-17","14:00","FOMC","High"],
+  ["2025-12-18","08:30","Unemployment Claims","Medium"],
+  ["2025-12-25","08:30","Unemployment Claims","Medium"],
+  // ── 2026 ──────────────────────────────────────────────────────────────────
+  ["2026-01-08","08:30","Unemployment Claims","Medium"],
+  ["2026-01-09","08:30","NFP","High"],
+  ["2026-01-15","08:30","CPI","High"],
+  ["2026-01-15","08:30","Unemployment Claims","Medium"],
+  ["2026-01-16","08:30","PPI","High"],
+  ["2026-01-22","08:30","Unemployment Claims","Medium"],
+  ["2026-01-28","14:00","FOMC","High"],
+  ["2026-01-29","08:30","Unemployment Claims","Medium"],
+  ["2026-02-05","08:30","Unemployment Claims","Medium"],
+  ["2026-02-06","08:30","NFP","High"],
+  ["2026-02-12","08:30","CPI","High"],
+  ["2026-02-12","08:30","Unemployment Claims","Medium"],
+  ["2026-02-13","08:30","PPI","High"],
+  ["2026-02-19","08:30","Unemployment Claims","Medium"],
+  ["2026-02-26","08:30","Unemployment Claims","Medium"],
+  ["2026-03-05","08:30","Unemployment Claims","Medium"],
+  ["2026-03-06","08:30","NFP","High"],
+  ["2026-03-12","08:30","CPI","High"],
+  ["2026-03-12","08:30","Unemployment Claims","Medium"],
+  ["2026-03-13","08:30","PPI","High"],
+  ["2026-03-18","14:00","FOMC","High"],
+  ["2026-03-19","08:30","Unemployment Claims","Medium"],
+  ["2026-03-26","08:30","Unemployment Claims","Medium"],
 ];
 
-// Returns { event, impact } if entryDatetime falls within 30 min window of a known news event
 function detectNewsEvent(entryDatetime) {
   if (!entryDatetime || !entryDatetime.includes("T")) return null;
   try {
-    const entryMs = new Date(entryDatetime).getTime();
-    const WINDOW_MS = 30 * 60 * 1000;
-    for (const [date, time, event, impact] of NEWS_CALENDAR_2024) {
-      const eventMs = new Date(`${date}T${time}:00`).getTime();
-      if (Math.abs(entryMs - eventMs) <= WINDOW_MS) {
-        return { event, impact };
-      }
+    const dt = new Date(entryDatetime);
+    // Convert to ET date and time
+    const etStr = dt.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
+    const etDate = new Date(etStr);
+    const etDateStr = etDate.toISOString().split("T")[0];
+    const etMins = etDate.getHours() * 60 + etDate.getMinutes();
+    const WINDOW = 30; // minutes either side
+
+    for (const [date, time, event, impact] of NEWS_CALENDAR) {
+      if (date !== etDateStr) continue;
+      const [h, m] = time.split(":").map(Number);
+      const evMins = h * 60 + m;
+      if (Math.abs(etMins - evMins) <= WINDOW) return { event, impact };
     }
     return null;
   } catch(e) { return null; }
@@ -458,33 +519,26 @@ export default function GCJournal() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Auto-detect news event whenever entryDatetime changes
-  useEffect(() => {
-    if (!form.entryDatetime) return;
-    const detected = detectNewsEvent(form.entryDatetime);
-    if (detected) {
-      setForm(f => ({ ...f, news: detected.event, newsImpact: detected.impact }));
-    } else {
-      setForm(f => ({ ...f, news: "None", newsImpact: "Low" }));
-    }
-  }, [form.entryDatetime]);
+
 
   const set = (k, v) => {
     if (k === "session") setSessionOverridden(true);
-    // For entryDatetime: run detection BEFORE setForm so results are captured in closure
-    const nd = (k === "entryDatetime") ? detectNewsEvent(v) : null;
     setForm(f => {
       const next = { ...f, [k]: v };
       if (k === "entryDatetime") {
+        // Auto-fill exit datetime
         if (!f.exitDatetime || f.exitDatetime === f.entryDatetime) {
           next.exitDatetime = v;
         }
+        // Auto-detect session
         if (!sessionOverridden) {
           const detected = detectSession(v);
           if (detected) next.session = detected;
         }
-        next.news = nd ? nd.event : "None";
-        next.newsImpact = nd ? nd.impact : "Low";
+        // Auto-detect news
+        const newsMatch = detectNewsEvent(v);
+        next.news = newsMatch ? newsMatch.event : "None";
+        next.newsImpact = newsMatch ? newsMatch.impact : "Low";
       }
       const entry = parseFloat(next.entryPrice);
       const exit = parseFloat(next.exitPrice);
@@ -901,13 +955,7 @@ export default function GCJournal() {
               <div>
                 <label style={lbl}>
                   News Event
-                  {form.news !== "None" && detectNewsEvent(form.entryDatetime)?.event === form.news && <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(0,229,160,0.12)", padding: "1px 6px", borderRadius: 4, color: "#00e5a0", fontWeight: 700 }}>AUTO</span>}
-                  {form.news !== "None" && detectNewsEvent(form.entryDatetime)?.event !== form.news && (
-                    <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(245,200,66,0.1)", padding: "1px 6px", borderRadius: 4, color: "#f5c842", cursor: "pointer" }}
-                      onClick={() => { const d = detectNewsEvent(form.entryDatetime); setForm(f => ({ ...f, news: d ? d.event : "None", newsImpact: d ? d.impact : "Low" })); }}>
-                      MANUAL reset
-                    </span>
-                  )}
+                  {form.news !== "None" && <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(0,229,160,0.12)", padding: "1px 6px", borderRadius: 4, color: "#00e5a0", fontWeight: 700 }}>AUTO</span>}
                 </label>
                 <select value={form.news} onChange={e => set("news", e.target.value)}
                   style={{ ...inp, ...(form.news !== "None" ? { border: "1px solid #00e5a044", color: "#f5c842", fontWeight: 700 } : {}) }}>
