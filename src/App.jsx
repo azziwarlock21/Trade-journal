@@ -276,7 +276,7 @@ const defaultForm = () => ({
   points: "", rrr: "", candlePattern: "", wickDirection: "None",
   news: "None", newsImpact: "Low", htfBias: "", marketStructure: "",
   tradeMode: "Backtest", grade: "Ungraded", executionGrade: "Ungraded",
-  outcome: "Win", mae: "", notes: "", screenshot: null, screenshotName: "",
+  outcome: "Win", maePrice: "", mae: "", notes: "", screenshot: null, screenshotName: "",
 });
 
 function calcPoints(entry, exit, dir) {
@@ -438,6 +438,15 @@ export default function GCJournal() {
         next.points = calcPoints(entry, exit, next.direction);
         if (!isNaN(sl)) next.rrr = calcRRR(entry, exit, sl);
       }
+      // Auto-calculate MAE from maePrice
+      const maeP = parseFloat(next.maePrice);
+      const entryP = parseFloat(next.entryPrice);
+      if (!isNaN(maeP) && !isNaN(entryP) && next.direction) {
+        const maePts = next.direction === "Long"
+          ? (entryP - maeP) * 10
+          : (maeP - entryP) * 10;
+        next.mae = maePts > 0 ? maePts.toFixed(1) : "0.0";
+      }
       return next;
     });
   };
@@ -509,8 +518,8 @@ export default function GCJournal() {
   };
 
   const duplicateTrade = (t) => {
-    const { id, screenshot, screenshotName, entryDatetime, exitDatetime, points, rrr, outcome, notes, mae, executionGrade, ...rest } = t;
-    setForm({ ...defaultForm(), ...rest, entryDatetime: "", exitDatetime: "", points: "", rrr: "", outcome: "Win", notes: "", mae: "", executionGrade: "Ungraded" });
+    const { id, screenshot, screenshotName, entryDatetime, exitDatetime, points, rrr, outcome, notes, mae, maePrice, executionGrade, ...rest } = t;
+    setForm({ ...defaultForm(), ...rest, entryDatetime: "", exitDatetime: "", points: "", rrr: "", outcome: "Win", notes: "", mae: "", maePrice: "", executionGrade: "Ungraded" });
     setEditId(null);
     setSessionOverridden(true);
     setView("journal");
@@ -728,6 +737,36 @@ export default function GCJournal() {
         { id: "r26", text: "Keep position sizing consistent — do not increase size after a winning streak or decrease out of fear after losses until you have 200+ live trades of data" },
       ],
     },
+    {
+      category: "Confluence Score — What Each Point Means",
+      color: "#f97316",
+      icon: "6/6",
+      description: "The journal scores your setup 0–6 live as you fill in the form. Each point below is one confluence. Aim for 5–6 before entering.",
+      checklist: false,
+      rules: [
+        { id: "c1", text: "HTF Bias is clear — Daily or 4H trend is set to Bullish or Bearish. Ranging or Uncertain = 0 points here. Trading against a clear bias is one of the most common reasons for avoidable losses." },
+        { id: "c2", text: "Kill zone entry — Your entry time falls between 03:00–05:00 ET (London open) or 09:00–11:00 ET (New York open). These are the two highest-liquidity windows for GC. Entries outside these windows score 0 for this point." },
+        { id: "c3", text: "Candle pattern present — A named pattern is selected on the form. A signal candle on your entry timeframe is required — a confluence without a trigger is not a trade, it is a guess." },
+        { id: "c4", text: "Stop loss placed behind structure — Both entry price and stop loss are filled in with a real distance between them. A stop is not valid if it is a round number or arbitrary pip distance; it must sit behind a swing high or low." },
+        { id: "c5", text: "RRR is at least 1:2 — The auto-calculated risk/reward ratio is 2.0 or higher. This is non-negotiable. If the target does not offer twice the risk, the setup does not qualify regardless of how good the signal looks." },
+        { id: "c6", text: "News is clear — No high-impact event is detected within 30 minutes of your entry, or the news impact is Low. CPI, NFP, FOMC, and Powell speeches all score 0 here. The journal auto-detects these from the built-in calendar." },
+      ],
+    },
+    {
+      category: "MAE — Max Adverse Excursion",
+      color: "#a78bfa",
+      icon: "MAE",
+      description: "One of the most underused metrics in retail trading. Log it on every trade — it reveals whether your stops are sized correctly over time.",
+      checklist: false,
+      rules: [
+        { id: "m1", text: "What MAE is — Max Adverse Excursion is how far price moved against you, in points, before the trade resolved. On a Long trade, it is the distance from your entry down to the lowest wick reached before price reversed or hit your stop. On a Short, it is the distance up to the highest wick." },
+        { id: "m2", text: "How to measure it — After closing the trade, look at the chart and find the worst price reached against your position before resolution. For a Long, this is the lowest wick. For a Short, this is the highest wick. Enter that price in the MAE Extreme Price field and the journal calculates the points automatically." },
+        { id: "m3", text: "What a low MAE on winning trades tells you — If your winners consistently show a MAE of 2–5 points, your entries are precise and price is moving in your direction almost immediately. This is the ideal. It means your timing and confluence are working." },
+        { id: "m4", text: "What a high MAE on winning trades tells you — If price goes 15–20 points against you before eventually winning, your stop is wide enough to survive but your entry is early or imprecise. You are enduring unnecessary heat. Consider tightening your entry trigger or waiting for more confirmation." },
+        { id: "m5", text: "What MAE on losing trades tells you — If your losses show a MAE equal to your full stop distance, price went straight to your stop without hesitation. This is normal and expected on invalid setups. If MAE on losses is consistently less than your stop, your stops may be too tight — you are getting stopped out before the trade had a chance to work." },
+        { id: "m6", text: "The goal over 50+ trades — Your average MAE on winning trades should be significantly smaller than your stop size. If your average stop is 15 points and your average MAE on winners is 12 points, you are nearly getting stopped out on every winner. That is a sign to either widen stops slightly or improve entry precision." },
+      ],
+    },
   ];
 
   const allChecklistIds = RULES.find(s => s.checklist).rules.map(r => r.id);
@@ -868,8 +907,12 @@ export default function GCJournal() {
               <div><label style={{ ...lbl, color: "#f5c842" }}>RRR {autoBadge}</label><input readOnly value={form.rrr} placeholder="--" style={autoInp} /></div>
 
               <div>
-                <label style={lbl}>MAE (Max Adverse Excursion)</label>
-                <input type="number" step="0.1" value={form.mae} onChange={e => set("mae", e.target.value)} placeholder="Points against you" style={inp} />
+                <label style={lbl}>MAE Extreme Price</label>
+                <input type="number" step="0.1" value={form.maePrice} onChange={e => set("maePrice", e.target.value)} placeholder={form.direction === "Short" ? "Highest price reached" : "Lowest price reached"} style={inp} />
+              </div>
+              <div>
+                <label style={{ ...lbl, color: "#f5c842" }}>MAE Points {autoBadge}</label>
+                <input readOnly value={form.mae} placeholder="--" style={autoInp} />
               </div>
 
               <div><label style={lbl}>Candle Pattern</label><select value={form.candlePattern} onChange={e => set("candlePattern", e.target.value)} style={inp}><option value="">Select...</option>{CANDLE_PATTERNS.map(s => <option key={s}>{s}</option>)}</select></div>
