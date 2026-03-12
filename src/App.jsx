@@ -404,11 +404,10 @@ if (!sessionOverridden) {
 const detected = detectSession(v);
 if (detected) next.session = detected;
 }
-if (!newsOverridden) {
-  const nd = detectNewsEvent(v);
-  if (nd) { next.news = nd.event; next.newsImpact = nd.impact; }
-  else { next.news = "None"; next.newsImpact = "Low"; }
-}
+const nd = detectNewsEvent(v);
+if (nd) { next.news = nd.event; next.newsImpact = nd.impact; }
+else { next.news = "None"; next.newsImpact = "Low"; }
+
 
 if (!newsOverridden) {
 const detectedNews = detectNewsEvent(v);
