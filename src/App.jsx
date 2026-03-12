@@ -89,11 +89,11 @@ async function dbDeleteAll() {
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────
-const CANDLE_PATTERNS = ["Engulfing Bull","Engulfing Bear","Hammer","Shooting Star","Doji","Pin Bar","Inside Bar","Outside Bar","Morning Star","Evening Star","Harami","Marubozu","Spinning Top","Three White Soldiers","Three Black Crows","Other"];
+const CANDLE_PATTERNS = ["Engulfing Bull","Engulfing Bear","Hammer","Doji","Pin Bar"];
 const NEWS_EVENTS = ["None","CPI","NFP","FOMC","PPI","GDP","ISM","Retail Sales","Unemployment Claims","Jerome Powell Speech","Other"];
 const SESSIONS = ["London","New York","Asia","London/NY Overlap","Pre-Market","After Hours"];
 const DIRECTIONS = ["Long","Short"];
-const TRADE_TYPES = ["Scalp","Day Trade","Swing","Breakout","Pullback","Reversal","Range","News Play","Other"];
+const TRADE_TYPES = ["Supply and Demand","Breakout","Reversal","Range","Break and Retest","News Play"];
 const GRADES = ["A","B","C","Ungraded"];
 const HTF_BIASES = ["Bullish","Bearish","Ranging","Uncertain"];
 const MARKET_STRUCTURES = ["With Trend","Counter Trend","Range","Breakout","Reversal"];
@@ -434,9 +434,24 @@ export default function GCJournal() {
       const entry = parseFloat(next.entryPrice);
       const exit  = parseFloat(next.exitPrice);
       const sl    = parseFloat(next.stopLoss);
+      const tp    = parseFloat(next.takeProfit);
       if (!isNaN(entry) && !isNaN(exit)) {
         next.points = calcPoints(entry, exit, next.direction);
         if (!isNaN(sl)) next.rrr = calcRRR(entry, exit, sl);
+        // Auto-outcome from exit vs SL/TP
+        if (!isNaN(sl) && !isNaN(tp) && next.direction) {
+          if (next.direction === "Long") {
+            if (exit >= tp) next.outcome = "Win";
+            else if (exit <= sl) next.outcome = "Loss";
+            else if (Math.abs(exit - entry) < 0.1) next.outcome = "Breakeven";
+            else next.outcome = exit > entry ? "Win" : "Loss";
+          } else {
+            if (exit <= tp) next.outcome = "Win";
+            else if (exit >= sl) next.outcome = "Loss";
+            else if (Math.abs(exit - entry) < 0.1) next.outcome = "Breakeven";
+            else next.outcome = exit < entry ? "Win" : "Loss";
+          }
+        }
       }
       // Auto-calculate MAE from maePrice
       const maeP = parseFloat(next.maePrice);
@@ -937,7 +952,7 @@ export default function GCJournal() {
               )}
 
               <div>
-                <label style={lbl}>Outcome</label>
+                <label style={lbl}>Outcome {autoBadge}</label>
                 <select value={form.outcome} onChange={e => set("outcome", e.target.value)} style={{ ...inp, color: outcomeColor(form.outcome), fontWeight: 700 }}>
                   {["Win","Loss","Breakeven"].map(s => <option key={s}>{s}</option>)}
                 </select>
