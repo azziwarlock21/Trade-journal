@@ -324,19 +324,19 @@ const NEWS_CALENDAR = [
 function detectNewsEvent(entryDatetime) {
   if (!entryDatetime || !entryDatetime.includes("T")) return null;
   try {
-    const dt = new Date(entryDatetime);
-    // Convert to ET date and time
-    const etStr = dt.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
-    const etDate = new Date(etStr);
-    const etDateStr = etDate.toISOString().split("T")[0];
-    const etMins = etDate.getHours() * 60 + etDate.getMinutes();
-    const WINDOW = 30; // minutes either side
+    // datetime-local input gives "YYYY-MM-DDTHH:MM" with NO timezone.
+    // The user enters times in ET (backtesting as ET), so parse directly.
+    // Never pass through new Date() — that applies the local browser timezone.
+    const [datePart, timePart] = entryDatetime.split("T");
+    const [h, m] = timePart.split(":").map(Number);
+    const entryMins = h * 60 + m;
+    const WINDOW = 30;
 
     for (const [date, time, event, impact] of NEWS_CALENDAR) {
-      if (date !== etDateStr) continue;
-      const [h, m] = time.split(":").map(Number);
-      const evMins = h * 60 + m;
-      if (Math.abs(etMins - evMins) <= WINDOW) return { event, impact };
+      if (date !== datePart) continue;
+      const [evH, evM] = time.split(":").map(Number);
+      const evMins = evH * 60 + evM;
+      if (Math.abs(entryMins - evMins) <= WINDOW) return { event, impact };
     }
     return null;
   } catch(e) { return null; }
