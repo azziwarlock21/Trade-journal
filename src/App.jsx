@@ -905,10 +905,7 @@ const _newsOverridden = k === "news" ? true : newsOverridden;
               <div><label style={lbl}>Wick Direction</label><select value={form.wickDirection} onChange={e => set("wickDirection", e.target.value)} style={inp}>{["None","Upper","Lower","Both"].map(s => <option key={s}>{s}</option>)}</select></div>
 
               <div style={{ display: "flex", alignItems: "center", paddingTop: 22 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: "#e6edf3" }}>
-                  <input type="checkbox" checked={form.doji} onChange={e => set("doji", e.target.checked)} style={{ width: 16, height: 16, accentColor: "#f5c842" }} />
-                  Doji Present
-                </label>
+                
               </div>
 
               <div>
