@@ -284,12 +284,6 @@ function detectNewsEvent(entryDatetime) {
 const TIMEZONES = [
   { label: "Germany (CET/CEST)", tz: "Europe/Berlin" },
   { label: "New York (ET)", tz: "America/New_York" },
-  { label: "London (GMT/BST)", tz: "Europe/London" },
-  { label: "Sydney (AEDT/AEST)", tz: "Australia/Sydney" },
-  { label: "Dubai (GST)", tz: "Asia/Dubai" },
-  { label: "Singapore (SGT)", tz: "Asia/Singapore" },
-  { label: "Tokyo (JST)", tz: "Asia/Tokyo" },
-  { label: "UTC", tz: "UTC" },
 ];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -450,7 +444,6 @@ export default function GCJournal() {
   const [lightboxSrc, setLightboxSrc] = useState(null);
   const [analyticsMode, setAnalyticsMode] = useState("All");
   const [checkedRules, setCheckedRules] = useState({});
-  const [newsOverridden, setNewsOverridden] = useState(false);
   const fileRef = useRef();
   const importRef = useRef();
   const dropZoneRef = useRef();
@@ -465,9 +458,21 @@ export default function GCJournal() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Auto-detect news event whenever entryDatetime changes
+  useEffect(() => {
+    if (!form.entryDatetime) return;
+    const detected = detectNewsEvent(form.entryDatetime);
+    if (detected) {
+      setForm(f => ({ ...f, news: detected.event, newsImpact: detected.impact }));
+    } else {
+      setForm(f => ({ ...f, news: "None", newsImpact: "Low" }));
+    }
+  }, [form.entryDatetime]);
+
   const set = (k, v) => {
     if (k === "session") setSessionOverridden(true);
-    if (k === "news") setNewsOverridden(true);
+    // For entryDatetime: run detection BEFORE setForm so results are captured in closure
+    const nd = (k === "entryDatetime") ? detectNewsEvent(v) : null;
     setForm(f => {
       const next = { ...f, [k]: v };
       if (k === "entryDatetime") {
@@ -478,14 +483,8 @@ export default function GCJournal() {
           const detected = detectSession(v);
           if (detected) next.session = detected;
         }
-        const detectedNews = detectNewsEvent(v);
-        if (detectedNews) {
-          next.news = detectedNews.event;
-          next.newsImpact = detectedNews.impact;
-        } else {
-          next.news = "None";
-          next.newsImpact = "Low";
-        }
+        next.news = nd ? nd.event : "None";
+        next.newsImpact = nd ? nd.impact : "Low";
       }
       const entry = parseFloat(next.entryPrice);
       const exit = parseFloat(next.exitPrice);
@@ -902,20 +901,16 @@ export default function GCJournal() {
               <div>
                 <label style={lbl}>
                   News Event
-                  {form.news !== "None" && !newsOverridden && <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(0,229,160,0.12)", padding: "1px 6px", borderRadius: 4, color: "#00e5a0", fontWeight: 700 }}>AUTO</span>}
-                  {newsOverridden && (
+                  {form.news !== "None" && detectNewsEvent(form.entryDatetime)?.event === form.news && <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(0,229,160,0.12)", padding: "1px 6px", borderRadius: 4, color: "#00e5a0", fontWeight: 700 }}>AUTO</span>}
+                  {form.news !== "None" && detectNewsEvent(form.entryDatetime)?.event !== form.news && (
                     <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(245,200,66,0.1)", padding: "1px 6px", borderRadius: 4, color: "#f5c842", cursor: "pointer" }}
-                      onClick={() => {
-                        setNewsOverridden(false);
-                        const d = detectNewsEvent(form.entryDatetime);
-                        setForm(f => ({ ...f, news: d ? d.event : "None", newsImpact: d ? d.impact : "Low" }));
-                      }}>
+                      onClick={() => { const d = detectNewsEvent(form.entryDatetime); setForm(f => ({ ...f, news: d ? d.event : "None", newsImpact: d ? d.impact : "Low" })); }}>
                       MANUAL reset
                     </span>
                   )}
                 </label>
                 <select value={form.news} onChange={e => set("news", e.target.value)}
-                  style={{ ...inp, ...(form.news !== "None" && !newsOverridden ? { border: "1px solid #00e5a044", color: "#f5c842", fontWeight: 700 } : {}) }}>
+                  style={{ ...inp, ...(form.news !== "None" ? { border: "1px solid #00e5a044", color: "#f5c842", fontWeight: 700 } : {}) }}>
                   {NEWS_EVENTS.map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
@@ -1064,7 +1059,7 @@ export default function GCJournal() {
               <button onClick={saveTrade} disabled={syncing} style={{ padding: "11px 28px", background: syncing ? "#2a2f3a" : "linear-gradient(135deg, #f5c842, #ff9a3c)", borderRadius: 10, border: "none", color: syncing ? "#6b7280" : "#070b12", fontWeight: 700, fontSize: 12, cursor: syncing ? "not-allowed" : "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
                 {syncing ? "Saving..." : editId ? "Update Trade" : "Save Trade"}
               </button>
-              {editId && <button onClick={() => { setEditId(null); setForm(defaultForm()); setSessionOverridden(false); setNewsOverridden(false); }} style={{ padding: "11px 20px", background: "transparent", borderRadius: 10, border: "1px solid #2a2f3a", color: "#8b949e", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>}
+              {editId && <button onClick={() => { setEditId(null); setForm(defaultForm()); setSessionOverridden(false); }} style={{ padding: "11px 20px", background: "transparent", borderRadius: 10, border: "1px solid #2a2f3a", color: "#8b949e", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>}
               {syncError && <span style={{ fontSize: 11, color: "#ff4d6d" }}>{syncError}</span>}
             </div>
           </div>
