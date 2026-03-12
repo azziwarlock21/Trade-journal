@@ -375,7 +375,7 @@ const [filterOutcome, setFilterOutcome] = useState(“All”);
 const [filterMode, setFilterMode] = useState(“All”);
 const [expandedId, setExpandedId] = useState(null);
 const [userTz, setUserTz] = useState(“America/New_York”);
-const [sessionOverridden, setSessionOverridden] = useState(false);
+const [sessionOverridden, setSessionOverridden] = useState(false); const [newsOverridden, setNewsOverridden] = useState(false);  const [newsOverridden, setNewsOverridden] = useState(false); 
 const [lightboxSrc, setLightboxSrc] = useState(null);
 const [analyticsMode, setAnalyticsMode] = useState(“All”);
 const [checkedRules, setCheckedRules] = useState({});
@@ -404,6 +404,12 @@ if (!sessionOverridden) {
 const detected = detectSession(v);
 if (detected) next.session = detected;
 }
+if (!newsOverridden) {
+  const nd = detectNewsEvent(v);
+  if (nd) { next.news = nd.event; next.newsImpact = nd.impact; }
+  else { next.news = "None"; next.newsImpact = "Low"; }
+}
+
 if (!newsOverridden) {
 const detectedNews = detectNewsEvent(v);
 if (detectedNews) {
