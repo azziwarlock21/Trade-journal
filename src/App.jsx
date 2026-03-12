@@ -22,7 +22,6 @@ const toRow = (t) => ({
   points: t.points || null,
   rrr: t.rrr || null,
   candle_pattern: t.candlePattern || null,
-  doji: t.doji || false,
   wick_direction: t.wickDirection || null,
   news: t.news || null,
   news_impact: t.newsImpact || null,
@@ -51,7 +50,6 @@ const fromRow = (r) => ({
   points: r.points || "",
   rrr: r.rrr || "",
   candlePattern: r.candle_pattern || "",
-  doji: r.doji || false,
   wickDirection: r.wick_direction || "None",
   news: r.news || "None",
   newsImpact: r.news_impact || "Low",
@@ -284,6 +282,7 @@ function detectNewsEvent(entryDatetime) {
 }
 
 const TIMEZONES = [
+  { label: "Germany (CET/CEST)", tz: "Europe/Berlin" },
   { label: "New York (ET)", tz: "America/New_York" },
   { label: "London (GMT/BST)", tz: "Europe/London" },
   { label: "Sydney (AEDT/AEST)", tz: "Australia/Sydney" },
@@ -346,7 +345,7 @@ function formatDatetime(dt) {
 const defaultForm = () => ({
   entryDatetime: "", exitDatetime: "", tradeType: "", direction: "", session: "",
   lotSize: "", entryPrice: "", exitPrice: "", stopLoss: "", takeProfit: "",
-  points: "", rrr: "", candlePattern: "", doji: false, wickDirection: "None",
+  points: "", rrr: "", candlePattern: "", wickDirection: "None",
   news: "None", newsImpact: "Low", htfBias: "", marketStructure: "",
   tradeMode: "Backtest", grade: "Ungraded", outcome: "Win",
   notes: "", screenshot: null, screenshotName: "",
@@ -446,7 +445,7 @@ export default function GCJournal() {
   const [filterOutcome, setFilterOutcome] = useState("All");
   const [filterMode, setFilterMode] = useState("All");
   const [expandedId, setExpandedId] = useState(null);
-  const [userTz, setUserTz] = useState("America/New_York");
+  const [userTz, setUserTz] = useState("Europe/Berlin");
   const [sessionOverridden, setSessionOverridden] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState(null);
   const [analyticsMode, setAnalyticsMode] = useState("All");
@@ -469,20 +468,16 @@ export default function GCJournal() {
   const set = (k, v) => {
     if (k === "session") setSessionOverridden(true);
     if (k === "news") setNewsOverridden(true);
-const _newsOverridden = k === "news" ? true : newsOverridden;
     setForm(f => {
       const next = { ...f, [k]: v };
       if (k === "entryDatetime") {
-        // Auto-fill exit datetime
         if (!f.exitDatetime || f.exitDatetime === f.entryDatetime) {
           next.exitDatetime = v;
         }
-        // Auto-detect session
         if (!sessionOverridden) {
           const detected = detectSession(v);
           if (detected) next.session = detected;
         }
-        // Auto-detect news — runs unconditionally, newsOverridden checked outside closure
         const detectedNews = detectNewsEvent(v);
         if (detectedNews) {
           next.news = detectedNews.event;
@@ -904,10 +899,6 @@ const _newsOverridden = k === "news" ? true : newsOverridden;
               <div><label style={lbl}>Candle Pattern</label><select value={form.candlePattern} onChange={e => set("candlePattern", e.target.value)} style={inp}><option value="">Select...</option>{CANDLE_PATTERNS.map(s => <option key={s}>{s}</option>)}</select></div>
               <div><label style={lbl}>Wick Direction</label><select value={form.wickDirection} onChange={e => set("wickDirection", e.target.value)} style={inp}>{["None","Upper","Lower","Both"].map(s => <option key={s}>{s}</option>)}</select></div>
 
-              <div style={{ display: "flex", alignItems: "center", paddingTop: 22 }}>
-                
-              </div>
-
               <div>
                 <label style={lbl}>
                   News Event
@@ -1121,7 +1112,7 @@ const _newsOverridden = k === "news" ? true : newsOverridden;
                   </div>
                   {expandedId === t.id && (
                     <div style={{ borderTop: "1px solid #1f2937", padding: "14px 16px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(155px, 1fr))", gap: 10 }}>
-                      {[["Entry", formatDatetime(t.entryDatetime)],["Exit", formatDatetime(t.exitDatetime)],["Duration", calcDuration(t.entryDatetime, t.exitDatetime)],["Session", t.session],["HTF Bias", t.htfBias],["Market Structure", t.marketStructure],["Lot Size", t.lotSize],["Entry Price", t.entryPrice],["Exit Price", t.exitPrice],["Stop Loss", t.stopLoss],["Take Profit", t.takeProfit],["Doji", t.doji ? "Yes" : ""],["Wick", t.wickDirection !== "None" ? t.wickDirection : ""],["News", t.news !== "None" ? t.news : ""],["News Impact", t.news !== "None" ? t.newsImpact : ""]].map(([k, v]) => v ? (
+                      {[["Entry", formatDatetime(t.entryDatetime)],["Exit", formatDatetime(t.exitDatetime)],["Duration", calcDuration(t.entryDatetime, t.exitDatetime)],["Session", t.session],["HTF Bias", t.htfBias],["Market Structure", t.marketStructure],["Lot Size", t.lotSize],["Entry Price", t.entryPrice],["Exit Price", t.exitPrice],["Stop Loss", t.stopLoss],["Take Profit", t.takeProfit],["Wick", t.wickDirection !== "None" ? t.wickDirection : ""],["News", t.news !== "None" ? t.news : ""],["News Impact", t.news !== "None" ? t.newsImpact : ""]].map(([k, v]) => v ? (
                         <div key={k}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>{k}</div><div style={{ fontSize: 12, color: "#e6edf3" }}>{v}</div></div>
                       ) : null)}
                       {t.notes && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Notes</div><div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>{t.notes}</div></div>}
