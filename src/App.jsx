@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 
 // ─── Supabase config ───────────────────────────────────────────────────────
 const SUPABASE_URL = "https://ivbgtbsobmwxldoiwcru.supabase.co";
@@ -6,7 +6,6 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const HEADERS = { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
 const TABLE = `${SUPABASE_URL}/rest/v1/trades`;
 
-// Map camelCase form keys ↔ snake_case DB columns
 const toRow = (t) => ({
   id: t.id,
   entry_datetime: t.entryDatetime || null,
@@ -29,7 +28,9 @@ const toRow = (t) => ({
   market_structure: t.marketStructure || null,
   trade_mode: t.tradeMode || "Backtest",
   grade: t.grade || "Ungraded",
+  execution_grade: t.executionGrade || "Ungraded",
   outcome: t.outcome || "Win",
+  mae: t.mae || null,
   notes: t.notes || null,
   screenshot: t.screenshot || null,
   screenshot_name: t.screenshotName || null,
@@ -57,7 +58,9 @@ const fromRow = (r) => ({
   marketStructure: r.market_structure || "",
   tradeMode: r.trade_mode || "Backtest",
   grade: r.grade || "Ungraded",
+  executionGrade: r.execution_grade || "Ungraded",
   outcome: r.outcome || "Win",
+  mae: r.mae || "",
   notes: r.notes || "",
   screenshot: r.screenshot || null,
   screenshotName: r.screenshot_name || "",
@@ -66,25 +69,20 @@ const fromRow = (r) => ({
 async function dbFetchAll() {
   const res = await fetch(`${TABLE}?order=entry_datetime.desc&limit=2000`, { headers: { ...HEADERS, "Prefer": "return=representation" } });
   if (!res.ok) throw new Error(await res.text());
-  const rows = await res.json();
-  return rows.map(fromRow);
+  return (await res.json()).map(fromRow);
 }
-
 async function dbInsert(trade) {
   const res = await fetch(TABLE, { method: "POST", headers: { ...HEADERS, "Prefer": "return=representation" }, body: JSON.stringify(toRow(trade)) });
   if (!res.ok) throw new Error(await res.text());
 }
-
 async function dbUpdate(trade) {
   const res = await fetch(`${TABLE}?id=eq.${trade.id}`, { method: "PATCH", headers: { ...HEADERS, "Prefer": "return=representation" }, body: JSON.stringify(toRow(trade)) });
   if (!res.ok) throw new Error(await res.text());
 }
-
 async function dbDelete(id) {
   const res = await fetch(`${TABLE}?id=eq.${id}`, { method: "DELETE", headers: HEADERS });
   if (!res.ok) throw new Error(await res.text());
 }
-
 async function dbDeleteAll() {
   const res = await fetch(`${TABLE}?id=neq.0`, { method: "DELETE", headers: HEADERS });
   if (!res.ok) throw new Error(await res.text());
@@ -100,274 +98,150 @@ const GRADES = ["A","B","C","Ungraded"];
 const HTF_BIASES = ["Bullish","Bearish","Ranging","Uncertain"];
 const MARKET_STRUCTURES = ["With Trend","Counter Trend","Range","Breakout","Reversal"];
 const TRADE_MODES = ["Backtest","Paper","Live"];
-// ─── Economic Calendar 2024–2026 (ET times) ─────────────────────────────────
-// Gold-relevant US events: NFP, CPI, PPI, FOMC, Powell, Jobless Claims
-// All times Eastern. Format: [YYYY-MM-DD, HH:MM, eventName, impact]
+const TIMEZONES = [
+  { label: "Germany (CET/CEST)", tz: "Europe/Berlin" },
+  { label: "New York (ET)", tz: "America/New_York" },
+];
+
+// ─── Economic Calendar 2024–2026 (ET times) ──────────────────────────────
 const NEWS_CALENDAR = [
-  // ── 2024 ──────────────────────────────────────────────────────────────────
-  ["2024-01-05","08:30","NFP","High"],
-  ["2024-01-11","08:30","CPI","High"],
-  ["2024-01-12","08:30","PPI","High"],
-  ["2024-01-18","08:30","Unemployment Claims","Medium"],
-  ["2024-01-25","08:30","Unemployment Claims","Medium"],
-  ["2024-01-31","14:00","FOMC","High"],
-  ["2024-02-01","08:30","Unemployment Claims","Medium"],
-  ["2024-02-02","08:30","NFP","High"],
-  ["2024-02-08","08:30","Unemployment Claims","Medium"],
-  ["2024-02-13","08:30","CPI","High"],
-  ["2024-02-14","08:30","PPI","High"],
-  ["2024-02-15","08:30","Unemployment Claims","Medium"],
-  ["2024-02-20","08:30","Unemployment Claims","Medium"],
-  ["2024-02-22","08:30","Unemployment Claims","Medium"],
-  ["2024-02-29","08:30","Unemployment Claims","Medium"],
-  ["2024-03-01","08:30","NFP","High"],
-  ["2024-03-07","08:30","Unemployment Claims","Medium"],
-  ["2024-03-12","08:30","CPI","High"],
-  ["2024-03-13","08:30","PPI","High"],
-  ["2024-03-14","08:30","Unemployment Claims","Medium"],
-  ["2024-03-20","14:00","FOMC","High"],
-  ["2024-03-21","08:30","Unemployment Claims","Medium"],
-  ["2024-03-28","08:30","Unemployment Claims","Medium"],
-  ["2024-04-05","08:30","NFP","High"],
-  ["2024-04-10","08:30","CPI","High"],
-  ["2024-04-11","08:30","PPI","High"],
-  ["2024-04-11","08:30","Unemployment Claims","Medium"],
-  ["2024-04-18","08:30","Unemployment Claims","Medium"],
-  ["2024-04-25","08:30","Unemployment Claims","Medium"],
-  ["2024-05-01","14:00","FOMC","High"],
-  ["2024-05-02","08:30","Unemployment Claims","Medium"],
-  ["2024-05-03","08:30","NFP","High"],
-  ["2024-05-09","08:30","Unemployment Claims","Medium"],
-  ["2024-05-15","08:30","CPI","High"],
-  ["2024-05-16","08:30","PPI","High"],
-  ["2024-05-16","08:30","Unemployment Claims","Medium"],
-  ["2024-05-23","08:30","Unemployment Claims","Medium"],
-  ["2024-05-30","08:30","Unemployment Claims","Medium"],
-  ["2024-06-06","08:30","Unemployment Claims","Medium"],
-  ["2024-06-07","08:30","NFP","High"],
-  ["2024-06-12","08:30","CPI","High"],
-  ["2024-06-12","14:00","FOMC","High"],
-  ["2024-06-13","08:30","PPI","High"],
-  ["2024-06-13","08:30","Unemployment Claims","Medium"],
-  ["2024-06-20","08:30","Unemployment Claims","Medium"],
-  ["2024-06-27","08:30","Unemployment Claims","Medium"],
-  ["2024-07-02","08:30","Unemployment Claims","Medium"],
-  ["2024-07-05","08:30","NFP","High"],
-  ["2024-07-11","08:30","CPI","High"],
-  ["2024-07-12","08:30","PPI","High"],
-  ["2024-07-11","08:30","Unemployment Claims","Medium"],
-  ["2024-07-18","08:30","Unemployment Claims","Medium"],
-  ["2024-07-25","08:30","Unemployment Claims","Medium"],
-  ["2024-07-31","14:00","FOMC","High"],
-  ["2024-08-01","08:30","Unemployment Claims","Medium"],
-  ["2024-08-02","08:30","NFP","High"],
-  ["2024-08-08","08:30","Unemployment Claims","Medium"],
-  ["2024-08-14","08:30","CPI","High"],
-  ["2024-08-15","08:30","PPI","High"],
-  ["2024-08-15","08:30","Unemployment Claims","Medium"],
-  ["2024-08-22","08:30","Unemployment Claims","Medium"],
-  ["2024-08-23","10:00","Jerome Powell Speech","High"],
-  ["2024-08-29","08:30","Unemployment Claims","Medium"],
-  ["2024-09-05","08:30","Unemployment Claims","Medium"],
-  ["2024-09-06","08:30","NFP","High"],
-  ["2024-09-11","08:30","CPI","High"],
-  ["2024-09-12","08:30","PPI","High"],
-  ["2024-09-12","08:30","Unemployment Claims","Medium"],
-  ["2024-09-18","14:00","FOMC","High"],
-  ["2024-09-19","08:30","Unemployment Claims","Medium"],
-  ["2024-09-26","08:30","Unemployment Claims","Medium"],
-  ["2024-10-03","08:30","Unemployment Claims","Medium"],
-  ["2024-10-04","08:30","NFP","High"],
-  ["2024-10-10","08:30","CPI","High"],
-  ["2024-10-11","08:30","PPI","High"],
-  ["2024-10-10","08:30","Unemployment Claims","Medium"],
-  ["2024-10-17","08:30","Unemployment Claims","Medium"],
-  ["2024-10-24","08:30","Unemployment Claims","Medium"],
-  ["2024-10-31","08:30","Unemployment Claims","Medium"],
-  ["2024-11-01","08:30","NFP","High"],
-  ["2024-11-07","14:00","FOMC","High"],
-  ["2024-11-07","08:30","Unemployment Claims","Medium"],
-  ["2024-11-13","08:30","CPI","High"],
-  ["2024-11-14","08:30","PPI","High"],
-  ["2024-11-14","08:30","Unemployment Claims","Medium"],
-  ["2024-11-21","08:30","Unemployment Claims","Medium"],
-  ["2024-11-27","08:30","Unemployment Claims","Medium"],
-  ["2024-12-05","08:30","Unemployment Claims","Medium"],
-  ["2024-12-06","08:30","NFP","High"],
-  ["2024-12-11","08:30","CPI","High"],
-  ["2024-12-12","08:30","PPI","High"],
-  ["2024-12-12","08:30","Unemployment Claims","Medium"],
-  ["2024-12-18","14:00","FOMC","High"],
-  ["2024-12-19","08:30","Unemployment Claims","Medium"],
-  ["2024-12-26","08:30","Unemployment Claims","Medium"],
-  // ── 2025 ──────────────────────────────────────────────────────────────────
-  ["2025-01-02","08:30","Unemployment Claims","Medium"],
-  ["2025-01-10","08:30","NFP","High"],
-  ["2025-01-15","08:30","CPI","High"],
-  ["2025-01-16","08:30","PPI","High"],
-  ["2025-01-16","08:30","Unemployment Claims","Medium"],
-  ["2025-01-23","08:30","Unemployment Claims","Medium"],
-  ["2025-01-29","14:00","FOMC","High"],
-  ["2025-01-30","08:30","Unemployment Claims","Medium"],
-  ["2025-02-07","08:30","NFP","High"],
-  ["2025-02-12","08:30","CPI","High"],
-  ["2025-02-13","08:30","PPI","High"],
-  ["2025-02-13","08:30","Unemployment Claims","Medium"],
-  ["2025-02-20","08:30","Unemployment Claims","Medium"],
-  ["2025-02-27","08:30","Unemployment Claims","Medium"],
-  ["2025-03-06","08:30","Unemployment Claims","Medium"],
-  ["2025-03-07","08:30","NFP","High"],
-  ["2025-03-12","08:30","CPI","High"],
-  ["2025-03-13","08:30","PPI","High"],
-  ["2025-03-13","08:30","Unemployment Claims","Medium"],
-  ["2025-03-19","14:00","FOMC","High"],
-  ["2025-03-20","08:30","Unemployment Claims","Medium"],
-  ["2025-03-27","08:30","Unemployment Claims","Medium"],
-  ["2025-04-03","08:30","Unemployment Claims","Medium"],
-  ["2025-04-04","08:30","NFP","High"],
-  ["2025-04-10","08:30","CPI","High"],
-  ["2025-04-11","08:30","PPI","High"],
-  ["2025-04-10","08:30","Unemployment Claims","Medium"],
-  ["2025-04-17","08:30","Unemployment Claims","Medium"],
-  ["2025-04-24","08:30","Unemployment Claims","Medium"],
-  ["2025-05-01","08:30","Unemployment Claims","Medium"],
-  ["2025-05-02","08:30","NFP","High"],
-  ["2025-05-07","14:00","FOMC","High"],
-  ["2025-05-08","08:30","Unemployment Claims","Medium"],
-  ["2025-05-13","08:30","CPI","High"],
-  ["2025-05-15","08:30","PPI","High"],
-  ["2025-05-15","08:30","Unemployment Claims","Medium"],
-  ["2025-05-22","08:30","Unemployment Claims","Medium"],
-  ["2025-05-29","08:30","Unemployment Claims","Medium"],
-  ["2025-06-05","08:30","Unemployment Claims","Medium"],
-  ["2025-06-06","08:30","NFP","High"],
-  ["2025-06-11","08:30","CPI","High"],
-  ["2025-06-12","08:30","PPI","High"],
-  ["2025-06-12","08:30","Unemployment Claims","Medium"],
-  ["2025-06-18","14:00","FOMC","High"],
-  ["2025-06-19","08:30","Unemployment Claims","Medium"],
-  ["2025-06-26","08:30","Unemployment Claims","Medium"],
-  ["2025-07-03","08:30","Unemployment Claims","Medium"],
-  ["2025-07-03","08:30","NFP","High"],
-  ["2025-07-10","08:30","Unemployment Claims","Medium"],
-  ["2025-07-15","08:30","CPI","High"],
-  ["2025-07-16","08:30","PPI","High"],
-  ["2025-07-17","08:30","Unemployment Claims","Medium"],
-  ["2025-07-24","08:30","Unemployment Claims","Medium"],
-  ["2025-07-30","14:00","FOMC","High"],
-  ["2025-07-31","08:30","Unemployment Claims","Medium"],
-  ["2025-08-01","08:30","NFP","High"],
-  ["2025-08-07","08:30","Unemployment Claims","Medium"],
-  ["2025-08-13","08:30","CPI","High"],
-  ["2025-08-14","08:30","PPI","High"],
-  ["2025-08-14","08:30","Unemployment Claims","Medium"],
-  ["2025-08-21","08:30","Unemployment Claims","Medium"],
-  ["2025-08-28","08:30","Unemployment Claims","Medium"],
-  ["2025-09-04","08:30","Unemployment Claims","Medium"],
-  ["2025-09-05","08:30","NFP","High"],
-  ["2025-09-10","08:30","CPI","High"],
-  ["2025-09-11","08:30","PPI","High"],
-  ["2025-09-11","08:30","Unemployment Claims","Medium"],
-  ["2025-09-17","14:00","FOMC","High"],
-  ["2025-09-18","08:30","Unemployment Claims","Medium"],
-  ["2025-09-25","08:30","Unemployment Claims","Medium"],
-  ["2025-10-02","08:30","Unemployment Claims","Medium"],
-  ["2025-10-03","08:30","NFP","High"],
-  ["2025-10-09","08:30","Unemployment Claims","Medium"],
-  ["2025-10-15","08:30","CPI","High"],
-  ["2025-10-16","08:30","PPI","High"],
-  ["2025-10-16","08:30","Unemployment Claims","Medium"],
-  ["2025-10-23","08:30","Unemployment Claims","Medium"],
-  ["2025-10-29","14:00","FOMC","High"],
-  ["2025-10-30","08:30","Unemployment Claims","Medium"],
-  ["2025-11-06","08:30","Unemployment Claims","Medium"],
-  ["2025-11-07","08:30","NFP","High"],
-  ["2025-11-13","08:30","Unemployment Claims","Medium"],
-  ["2025-11-13","08:30","CPI","High"],
-  ["2025-11-14","08:30","PPI","High"],
-  ["2025-11-20","08:30","Unemployment Claims","Medium"],
-  ["2025-11-26","08:30","Unemployment Claims","Medium"],
-  ["2025-12-04","08:30","Unemployment Claims","Medium"],
-  ["2025-12-05","08:30","NFP","High"],
-  ["2025-12-10","08:30","CPI","High"],
-  ["2025-12-11","08:30","PPI","High"],
-  ["2025-12-11","08:30","Unemployment Claims","Medium"],
-  ["2025-12-17","14:00","FOMC","High"],
-  ["2025-12-18","08:30","Unemployment Claims","Medium"],
-  ["2025-12-25","08:30","Unemployment Claims","Medium"],
-  // ── 2026 ──────────────────────────────────────────────────────────────────
-  ["2026-01-08","08:30","Unemployment Claims","Medium"],
-  ["2026-01-09","08:30","NFP","High"],
-  ["2026-01-15","08:30","CPI","High"],
-  ["2026-01-15","08:30","Unemployment Claims","Medium"],
-  ["2026-01-16","08:30","PPI","High"],
-  ["2026-01-22","08:30","Unemployment Claims","Medium"],
-  ["2026-01-28","14:00","FOMC","High"],
-  ["2026-01-29","08:30","Unemployment Claims","Medium"],
-  ["2026-02-05","08:30","Unemployment Claims","Medium"],
-  ["2026-02-06","08:30","NFP","High"],
-  ["2026-02-12","08:30","CPI","High"],
-  ["2026-02-12","08:30","Unemployment Claims","Medium"],
-  ["2026-02-13","08:30","PPI","High"],
-  ["2026-02-19","08:30","Unemployment Claims","Medium"],
-  ["2026-02-26","08:30","Unemployment Claims","Medium"],
-  ["2026-03-05","08:30","Unemployment Claims","Medium"],
-  ["2026-03-06","08:30","NFP","High"],
-  ["2026-03-12","08:30","CPI","High"],
-  ["2026-03-12","08:30","Unemployment Claims","Medium"],
-  ["2026-03-13","08:30","PPI","High"],
-  ["2026-03-18","14:00","FOMC","High"],
-  ["2026-03-19","08:30","Unemployment Claims","Medium"],
+  ["2024-01-05","08:30","NFP","High"],["2024-01-11","08:30","CPI","High"],["2024-01-12","08:30","PPI","High"],
+  ["2024-01-18","08:30","Unemployment Claims","Medium"],["2024-01-25","08:30","Unemployment Claims","Medium"],
+  ["2024-01-31","14:00","FOMC","High"],["2024-02-01","08:30","Unemployment Claims","Medium"],
+  ["2024-02-02","08:30","NFP","High"],["2024-02-08","08:30","Unemployment Claims","Medium"],
+  ["2024-02-13","08:30","CPI","High"],["2024-02-14","08:30","PPI","High"],
+  ["2024-02-15","08:30","Unemployment Claims","Medium"],["2024-02-20","08:30","Unemployment Claims","Medium"],
+  ["2024-02-22","08:30","Unemployment Claims","Medium"],["2024-02-29","08:30","Unemployment Claims","Medium"],
+  ["2024-03-01","08:30","NFP","High"],["2024-03-07","08:30","Unemployment Claims","Medium"],
+  ["2024-03-12","08:30","CPI","High"],["2024-03-13","08:30","PPI","High"],
+  ["2024-03-14","08:30","Unemployment Claims","Medium"],["2024-03-20","14:00","FOMC","High"],
+  ["2024-03-21","08:30","Unemployment Claims","Medium"],["2024-03-28","08:30","Unemployment Claims","Medium"],
+  ["2024-04-05","08:30","NFP","High"],["2024-04-10","08:30","CPI","High"],["2024-04-11","08:30","PPI","High"],
+  ["2024-04-11","08:30","Unemployment Claims","Medium"],["2024-04-18","08:30","Unemployment Claims","Medium"],
+  ["2024-04-25","08:30","Unemployment Claims","Medium"],["2024-05-01","14:00","FOMC","High"],
+  ["2024-05-02","08:30","Unemployment Claims","Medium"],["2024-05-03","08:30","NFP","High"],
+  ["2024-05-09","08:30","Unemployment Claims","Medium"],["2024-05-15","08:30","CPI","High"],
+  ["2024-05-16","08:30","PPI","High"],["2024-05-16","08:30","Unemployment Claims","Medium"],
+  ["2024-05-23","08:30","Unemployment Claims","Medium"],["2024-05-30","08:30","Unemployment Claims","Medium"],
+  ["2024-06-06","08:30","Unemployment Claims","Medium"],["2024-06-07","08:30","NFP","High"],
+  ["2024-06-12","08:30","CPI","High"],["2024-06-12","14:00","FOMC","High"],["2024-06-13","08:30","PPI","High"],
+  ["2024-06-13","08:30","Unemployment Claims","Medium"],["2024-06-20","08:30","Unemployment Claims","Medium"],
+  ["2024-06-27","08:30","Unemployment Claims","Medium"],["2024-07-02","08:30","Unemployment Claims","Medium"],
+  ["2024-07-05","08:30","NFP","High"],["2024-07-11","08:30","CPI","High"],["2024-07-12","08:30","PPI","High"],
+  ["2024-07-11","08:30","Unemployment Claims","Medium"],["2024-07-18","08:30","Unemployment Claims","Medium"],
+  ["2024-07-25","08:30","Unemployment Claims","Medium"],["2024-07-31","14:00","FOMC","High"],
+  ["2024-08-01","08:30","Unemployment Claims","Medium"],["2024-08-02","08:30","NFP","High"],
+  ["2024-08-08","08:30","Unemployment Claims","Medium"],["2024-08-14","08:30","CPI","High"],
+  ["2024-08-15","08:30","PPI","High"],["2024-08-15","08:30","Unemployment Claims","Medium"],
+  ["2024-08-22","08:30","Unemployment Claims","Medium"],["2024-08-23","10:00","Jerome Powell Speech","High"],
+  ["2024-08-29","08:30","Unemployment Claims","Medium"],["2024-09-05","08:30","Unemployment Claims","Medium"],
+  ["2024-09-06","08:30","NFP","High"],["2024-09-11","08:30","CPI","High"],["2024-09-12","08:30","PPI","High"],
+  ["2024-09-12","08:30","Unemployment Claims","Medium"],["2024-09-18","14:00","FOMC","High"],
+  ["2024-09-19","08:30","Unemployment Claims","Medium"],["2024-09-26","08:30","Unemployment Claims","Medium"],
+  ["2024-10-03","08:30","Unemployment Claims","Medium"],["2024-10-04","08:30","NFP","High"],
+  ["2024-10-10","08:30","CPI","High"],["2024-10-11","08:30","PPI","High"],
+  ["2024-10-10","08:30","Unemployment Claims","Medium"],["2024-10-17","08:30","Unemployment Claims","Medium"],
+  ["2024-10-24","08:30","Unemployment Claims","Medium"],["2024-10-31","08:30","Unemployment Claims","Medium"],
+  ["2024-11-01","08:30","NFP","High"],["2024-11-07","14:00","FOMC","High"],
+  ["2024-11-07","08:30","Unemployment Claims","Medium"],["2024-11-13","08:30","CPI","High"],
+  ["2024-11-14","08:30","PPI","High"],["2024-11-14","08:30","Unemployment Claims","Medium"],
+  ["2024-11-21","08:30","Unemployment Claims","Medium"],["2024-11-27","08:30","Unemployment Claims","Medium"],
+  ["2024-12-05","08:30","Unemployment Claims","Medium"],["2024-12-06","08:30","NFP","High"],
+  ["2024-12-11","08:30","CPI","High"],["2024-12-12","08:30","PPI","High"],
+  ["2024-12-12","08:30","Unemployment Claims","Medium"],["2024-12-18","14:00","FOMC","High"],
+  ["2024-12-19","08:30","Unemployment Claims","Medium"],["2024-12-26","08:30","Unemployment Claims","Medium"],
+  ["2025-01-02","08:30","Unemployment Claims","Medium"],["2025-01-10","08:30","NFP","High"],
+  ["2025-01-15","08:30","CPI","High"],["2025-01-16","08:30","PPI","High"],
+  ["2025-01-16","08:30","Unemployment Claims","Medium"],["2025-01-23","08:30","Unemployment Claims","Medium"],
+  ["2025-01-29","14:00","FOMC","High"],["2025-01-30","08:30","Unemployment Claims","Medium"],
+  ["2025-02-07","08:30","NFP","High"],["2025-02-12","08:30","CPI","High"],["2025-02-13","08:30","PPI","High"],
+  ["2025-02-13","08:30","Unemployment Claims","Medium"],["2025-02-20","08:30","Unemployment Claims","Medium"],
+  ["2025-02-27","08:30","Unemployment Claims","Medium"],["2025-03-06","08:30","Unemployment Claims","Medium"],
+  ["2025-03-07","08:30","NFP","High"],["2025-03-12","08:30","CPI","High"],["2025-03-13","08:30","PPI","High"],
+  ["2025-03-13","08:30","Unemployment Claims","Medium"],["2025-03-19","14:00","FOMC","High"],
+  ["2025-03-20","08:30","Unemployment Claims","Medium"],["2025-03-27","08:30","Unemployment Claims","Medium"],
+  ["2025-04-03","08:30","Unemployment Claims","Medium"],["2025-04-04","08:30","NFP","High"],
+  ["2025-04-10","08:30","CPI","High"],["2025-04-11","08:30","PPI","High"],
+  ["2025-04-10","08:30","Unemployment Claims","Medium"],["2025-04-17","08:30","Unemployment Claims","Medium"],
+  ["2025-04-24","08:30","Unemployment Claims","Medium"],["2025-05-01","08:30","Unemployment Claims","Medium"],
+  ["2025-05-02","08:30","NFP","High"],["2025-05-07","14:00","FOMC","High"],
+  ["2025-05-08","08:30","Unemployment Claims","Medium"],["2025-05-13","08:30","CPI","High"],
+  ["2025-05-15","08:30","PPI","High"],["2025-05-15","08:30","Unemployment Claims","Medium"],
+  ["2025-05-22","08:30","Unemployment Claims","Medium"],["2025-05-29","08:30","Unemployment Claims","Medium"],
+  ["2025-06-05","08:30","Unemployment Claims","Medium"],["2025-06-06","08:30","NFP","High"],
+  ["2025-06-11","08:30","CPI","High"],["2025-06-12","08:30","PPI","High"],
+  ["2025-06-12","08:30","Unemployment Claims","Medium"],["2025-06-18","14:00","FOMC","High"],
+  ["2025-06-19","08:30","Unemployment Claims","Medium"],["2025-06-26","08:30","Unemployment Claims","Medium"],
+  ["2025-07-03","08:30","Unemployment Claims","Medium"],["2025-07-03","08:30","NFP","High"],
+  ["2025-07-10","08:30","Unemployment Claims","Medium"],["2025-07-15","08:30","CPI","High"],
+  ["2025-07-16","08:30","PPI","High"],["2025-07-17","08:30","Unemployment Claims","Medium"],
+  ["2025-07-24","08:30","Unemployment Claims","Medium"],["2025-07-30","14:00","FOMC","High"],
+  ["2025-07-31","08:30","Unemployment Claims","Medium"],["2025-08-01","08:30","NFP","High"],
+  ["2025-08-07","08:30","Unemployment Claims","Medium"],["2025-08-13","08:30","CPI","High"],
+  ["2025-08-14","08:30","PPI","High"],["2025-08-14","08:30","Unemployment Claims","Medium"],
+  ["2025-08-21","08:30","Unemployment Claims","Medium"],["2025-08-28","08:30","Unemployment Claims","Medium"],
+  ["2025-09-04","08:30","Unemployment Claims","Medium"],["2025-09-05","08:30","NFP","High"],
+  ["2025-09-10","08:30","CPI","High"],["2025-09-11","08:30","PPI","High"],
+  ["2025-09-11","08:30","Unemployment Claims","Medium"],["2025-09-17","14:00","FOMC","High"],
+  ["2025-09-18","08:30","Unemployment Claims","Medium"],["2025-09-25","08:30","Unemployment Claims","Medium"],
+  ["2025-10-02","08:30","Unemployment Claims","Medium"],["2025-10-03","08:30","NFP","High"],
+  ["2025-10-09","08:30","Unemployment Claims","Medium"],["2025-10-15","08:30","CPI","High"],
+  ["2025-10-16","08:30","PPI","High"],["2025-10-16","08:30","Unemployment Claims","Medium"],
+  ["2025-10-23","08:30","Unemployment Claims","Medium"],["2025-10-29","14:00","FOMC","High"],
+  ["2025-10-30","08:30","Unemployment Claims","Medium"],["2025-11-06","08:30","Unemployment Claims","Medium"],
+  ["2025-11-07","08:30","NFP","High"],["2025-11-13","08:30","Unemployment Claims","Medium"],
+  ["2025-11-13","08:30","CPI","High"],["2025-11-14","08:30","PPI","High"],
+  ["2025-11-20","08:30","Unemployment Claims","Medium"],["2025-11-26","08:30","Unemployment Claims","Medium"],
+  ["2025-12-04","08:30","Unemployment Claims","Medium"],["2025-12-05","08:30","NFP","High"],
+  ["2025-12-10","08:30","CPI","High"],["2025-12-11","08:30","PPI","High"],
+  ["2025-12-11","08:30","Unemployment Claims","Medium"],["2025-12-17","14:00","FOMC","High"],
+  ["2025-12-18","08:30","Unemployment Claims","Medium"],["2025-12-25","08:30","Unemployment Claims","Medium"],
+  ["2026-01-08","08:30","Unemployment Claims","Medium"],["2026-01-09","08:30","NFP","High"],
+  ["2026-01-15","08:30","CPI","High"],["2026-01-15","08:30","Unemployment Claims","Medium"],
+  ["2026-01-16","08:30","PPI","High"],["2026-01-22","08:30","Unemployment Claims","Medium"],
+  ["2026-01-28","14:00","FOMC","High"],["2026-01-29","08:30","Unemployment Claims","Medium"],
+  ["2026-02-05","08:30","Unemployment Claims","Medium"],["2026-02-06","08:30","NFP","High"],
+  ["2026-02-12","08:30","CPI","High"],["2026-02-12","08:30","Unemployment Claims","Medium"],
+  ["2026-02-13","08:30","PPI","High"],["2026-02-19","08:30","Unemployment Claims","Medium"],
+  ["2026-02-26","08:30","Unemployment Claims","Medium"],["2026-03-05","08:30","Unemployment Claims","Medium"],
+  ["2026-03-06","08:30","NFP","High"],["2026-03-12","08:30","CPI","High"],
+  ["2026-03-12","08:30","Unemployment Claims","Medium"],["2026-03-13","08:30","PPI","High"],
+  ["2026-03-18","14:00","FOMC","High"],["2026-03-19","08:30","Unemployment Claims","Medium"],
   ["2026-03-26","08:30","Unemployment Claims","Medium"],
 ];
 
 function detectNewsEvent(entryDatetime) {
   if (!entryDatetime || !entryDatetime.includes("T")) return null;
   try {
-    // datetime-local input gives "YYYY-MM-DDTHH:MM" with NO timezone.
-    // The user enters times in ET (backtesting as ET), so parse directly.
-    // Never pass through new Date() — that applies the local browser timezone.
     const [datePart, timePart] = entryDatetime.split("T");
     const [h, m] = timePart.split(":").map(Number);
     const entryMins = h * 60 + m;
-    const WINDOW = 30;
-
     for (const [date, time, event, impact] of NEWS_CALENDAR) {
       if (date !== datePart) continue;
       const [evH, evM] = time.split(":").map(Number);
-      const evMins = evH * 60 + evM;
-      if (Math.abs(entryMins - evMins) <= WINDOW) return { event, impact };
+      if (Math.abs(entryMins - (evH * 60 + evM)) <= 30) return { event, impact };
     }
     return null;
   } catch(e) { return null; }
 }
 
-const TIMEZONES = [
-  { label: "Germany (CET/CEST)", tz: "Europe/Berlin" },
-  { label: "New York (ET)", tz: "America/New_York" },
-];
-
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function detectSession(entryDatetime) {
   if (!entryDatetime || !entryDatetime.includes("T")) return "";
   try {
-    // Parse time directly from string — user enters ET times regardless of browser timezone
-    const timePart = entryDatetime.split("T")[1];
-    const [h, m] = timePart.split(":").map(Number);
+    const [h, m] = entryDatetime.split("T")[1].split(":").map(Number);
     const etMins = h * 60 + m;
-    if (etMins >= 1080 || etMins < 180) return "Asia";           // 18:00+ or before 03:00
-    if (etMins < 480)                   return "London";          // 03:00–08:00
-    if (etMins < 720)                   return "London/NY Overlap"; // 08:00–12:00
-    if (etMins < 1020)                  return "New York";        // 12:00–17:00
-    return "After Hours";                                         // 17:00–18:00
+    if (etMins >= 1080 || etMins < 180) return "Asia";
+    if (etMins < 480)  return "London";
+    if (etMins < 720)  return "London/NY Overlap";
+    if (etMins < 1020) return "New York";
+    return "After Hours";
   } catch(e) { return ""; }
 }
 
 function getETHour(entryDatetime) {
   if (!entryDatetime || !entryDatetime.includes("T")) return null;
-  try {
-    return parseInt(entryDatetime.split("T")[1].split(":")[0], 10);
-  } catch(e) { return null; }
+  try { return parseInt(entryDatetime.split("T")[1].split(":")[0], 10); } catch(e) { return null; }
 }
 
 function calcDuration(entry, exit) {
@@ -378,17 +252,22 @@ function calcDuration(entry, exit) {
     const totalMins = Math.floor(diff / 60000);
     const hrs = Math.floor(totalMins / 60);
     const mins = totalMins % 60;
-    if (hrs > 0) return `${hrs}h ${mins}m`;
-    return `${mins}m`;
+    return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
   } catch(e) { return ""; }
 }
 
 function formatDatetime(dt) {
   if (!dt) return "--";
   try {
-    const d = new Date(dt);
-    return d.toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+    return new Date(dt).toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
   } catch(e) { return dt; }
+}
+
+function formatDate(dt) {
+  if (!dt) return "";
+  try {
+    return new Date(dt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "2-digit" });
+  } catch(e) { return dt.split("T")[0]; }
 }
 
 const defaultForm = () => ({
@@ -396,26 +275,36 @@ const defaultForm = () => ({
   lotSize: "", entryPrice: "", exitPrice: "", stopLoss: "", takeProfit: "",
   points: "", rrr: "", candlePattern: "", wickDirection: "None",
   news: "None", newsImpact: "Low", htfBias: "", marketStructure: "",
-  tradeMode: "Backtest", grade: "Ungraded", outcome: "Win",
-  notes: "", screenshot: null, screenshotName: "",
+  tradeMode: "Backtest", grade: "Ungraded", executionGrade: "Ungraded",
+  outcome: "Win", mae: "", notes: "", screenshot: null, screenshotName: "",
 });
 
 function calcPoints(entry, exit, dir) {
   if (!entry || !exit) return "";
-  const diff = dir === "Long" ? exit - entry : entry - exit;
-  return (diff * 10).toFixed(1);
+  return ((dir === "Long" ? exit - entry : entry - exit) * 10).toFixed(1);
 }
 function calcRRR(entry, exit, sl) {
   if (!entry || !exit || !sl) return "";
-  const reward = Math.abs(exit - entry);
   const risk = Math.abs(entry - sl);
   if (!risk) return "";
-  return (reward / risk).toFixed(2);
+  return (Math.abs(exit - entry) / risk).toFixed(2);
+}
+function calcConfluence(form) {
+  let score = 0;
+  if (form.htfBias && form.htfBias !== "Ranging" && form.htfBias !== "Uncertain") score++;
+  const h = form.entryDatetime ? parseInt(form.entryDatetime.split("T")[1], 10) : -1;
+  if ((h >= 3 && h < 5) || (h >= 9 && h < 11)) score++; // kill zones
+  if (form.candlePattern && form.candlePattern !== "") score++;
+  if (form.stopLoss && form.entryPrice && Math.abs(parseFloat(form.entryPrice) - parseFloat(form.stopLoss)) > 0) score++;
+  if (parseFloat(form.rrr) >= 2) score++;
+  if (form.news === "None" || form.newsImpact === "Low") score++;
+  return score;
 }
 
-const gradeColor = (g) => g === "A" ? "#00e5a0" : g === "B" ? "#f5c842" : g === "C" ? "#ff7043" : "#888";
+const gradeColor   = (g) => g === "A" ? "#00e5a0" : g === "B" ? "#f5c842" : g === "C" ? "#ff7043" : "#888";
 const outcomeColor = (o) => o === "Win" ? "#00e5a0" : o === "Loss" ? "#ff4d6d" : "#aaa";
-const modeColor = (m) => m === "Live" ? "#00e5a0" : m === "Paper" ? "#3b82f6" : "#a78bfa";
+const modeColor    = (m) => m === "Live" ? "#00e5a0" : m === "Paper" ? "#3b82f6" : "#a78bfa";
+const confluenceColor = (s) => s >= 5 ? "#00e5a0" : s >= 3 ? "#f5c842" : "#ff4d6d";
 
 function BarRow({ label, wins, total, color }) {
   const wr = total ? (wins / total) * 100 : 0;
@@ -423,7 +312,7 @@ function BarRow({ label, wins, total, color }) {
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
         <span style={{ fontSize: 11, color: "#e6edf3" }}>{label}</span>
-        <span style={{ fontSize: 11, color: "#8b949e" }}>{wins}/{total} - {wr.toFixed(0)}% WR</span>
+        <span style={{ fontSize: 11, color: "#8b949e" }}>{wins}/{total} · {wr.toFixed(0)}% WR</span>
       </div>
       <div style={{ height: 6, background: "#1f2937", borderRadius: 3, overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${wr}%`, background: color, borderRadius: 3, transition: "width 0.5s ease" }} />
@@ -452,8 +341,7 @@ function HeatmapCell({ wins, total }) {
 function EquityCurve({ data }) {
   if (!data || data.length < 2) return <div style={{ color: "#4b5563", fontSize: 12, padding: 20 }}>Not enough trades to render curve.</div>;
   const pts = data.map(d => d.pts);
-  const min = Math.min(...pts, 0);
-  const max = Math.max(...pts, 0);
+  const min = Math.min(...pts, 0), max = Math.max(...pts, 0);
   const range = max - min || 1;
   const W = 600, H = 120, PAD = 12;
   const x = (i) => PAD + (i / (data.length - 1)) * (W - PAD * 2);
@@ -461,8 +349,7 @@ function EquityCurve({ data }) {
   const zeroY = y(0);
   const pathD = data.map((d, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(d.pts).toFixed(1)}`).join(" ");
   const fillD = `${pathD} L${x(data.length - 1).toFixed(1)},${H - PAD} L${x(0).toFixed(1)},${H - PAD} Z`;
-  const lastPt = data[data.length - 1].pts;
-  const lineColor = lastPt >= 0 ? "#00e5a0" : "#ff4d6d";
+  const lineColor = data[data.length - 1].pts >= 0 ? "#00e5a0" : "#ff4d6d";
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H }}>
       <line x1={PAD} y1={zeroY} x2={W - PAD} y2={zeroY} stroke="#2a2f3a" strokeWidth="1" strokeDasharray="4,4" />
@@ -481,30 +368,32 @@ function EquityCurve({ data }) {
   );
 }
 
-// ─── Main Component ────────────────────────────────────────────────────────
+// ─── Main Component ─────────────────────────────────────────────────────────
 export default function GCJournal() {
-  const [trades, setTrades] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState("");
-  const [form, setForm] = useState(defaultForm());
-  const [view, setView] = useState("journal");
-  const [editId, setEditId] = useState(null);
-  const [filterGrade, setFilterGrade] = useState("All");
+  const [trades, setTrades]               = useState([]);
+  const [loading, setLoading]             = useState(true);
+  const [syncing, setSyncing]             = useState(false);
+  const [syncError, setSyncError]         = useState("");
+  const [form, setForm]                   = useState(defaultForm());
+  const [view, setView]                   = useState("journal");
+  const [editId, setEditId]               = useState(null);
+  const [filterGrade, setFilterGrade]     = useState("All");
   const [filterOutcome, setFilterOutcome] = useState("All");
-  const [filterMode, setFilterMode] = useState("All");
-  const [expandedId, setExpandedId] = useState(null);
-  const [userTz, setUserTz] = useState("Europe/Berlin");
+  const [filterMode, setFilterMode]       = useState("All");
+  const [filterSearch, setFilterSearch]   = useState("");
+  const [expandedId, setExpandedId]       = useState(null);
+  const [userTz, setUserTz]               = useState("Europe/Berlin");
   const [sessionOverridden, setSessionOverridden] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState(null);
+  const [lightboxSrc, setLightboxSrc]     = useState(null);
   const [analyticsMode, setAnalyticsMode] = useState("All");
-  const [checkedRules, setCheckedRules] = useState({});
-  const fileRef = useRef();
-  const importRef = useRef();
-  const dropZoneRef = useRef();
-  const [isDragging, setIsDragging] = useState(false);
+  const [checkedRules, setCheckedRules]   = useState({});
+  const [isDragging, setIsDragging]       = useState(false);
+  const [pasteMode, setPasteMode]         = useState(false);
+  const fileRef       = useRef();
+  const importRef     = useRef();
+  const dropZoneRef   = useRef();
+  const pasteTargetRef = useRef();
 
-  // Load all trades from Supabase on mount
   useEffect(() => {
     setLoading(true);
     dbFetchAll()
@@ -513,30 +402,38 @@ export default function GCJournal() {
       .finally(() => setLoading(false));
   }, []);
 
-
+  // Keyboard shortcut: N = new trade
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "n" && !e.ctrlKey && !e.metaKey && document.activeElement.tagName === "BODY") {
+        setView("journal");
+        setEditId(null);
+        setForm(defaultForm());
+        setSessionOverridden(false);
+        window.scrollTo(0, 0);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const set = (k, v) => {
     if (k === "session") setSessionOverridden(true);
     setForm(f => {
       const next = { ...f, [k]: v };
       if (k === "entryDatetime") {
-        // Auto-fill exit datetime
-        if (!f.exitDatetime || f.exitDatetime === f.entryDatetime) {
-          next.exitDatetime = v;
-        }
-        // Auto-detect session
+        if (!f.exitDatetime || f.exitDatetime === f.entryDatetime) next.exitDatetime = v;
         if (!sessionOverridden) {
           const detected = detectSession(v);
           if (detected) next.session = detected;
         }
-        // Auto-detect news
         const newsMatch = detectNewsEvent(v);
         next.news = newsMatch ? newsMatch.event : "None";
         next.newsImpact = newsMatch ? newsMatch.impact : "Low";
       }
       const entry = parseFloat(next.entryPrice);
-      const exit = parseFloat(next.exitPrice);
-      const sl = parseFloat(next.stopLoss);
+      const exit  = parseFloat(next.exitPrice);
+      const sl    = parseFloat(next.stopLoss);
       if (!isNaN(entry) && !isNaN(exit)) {
         next.points = calcPoints(entry, exit, next.direction);
         if (!isNaN(sl)) next.rrr = calcRRR(entry, exit, sl);
@@ -552,75 +449,55 @@ export default function GCJournal() {
     reader.readAsDataURL(file);
   };
 
-  const handleScreenshot = (e) => {
-    const file = e.target.files[0];
-    if (file) loadImageFile(file);
-  };
-
-  const pasteTargetRef = useRef();
-  const [pasteMode, setPasteMode] = useState(false);
-
   const handlePaste = (e) => {
     const items = e.clipboardData && e.clipboardData.items;
     if (!items) return;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.startsWith("image/")) {
         e.preventDefault();
-        const file = items[i].getAsFile();
-        loadImageFile(file);
+        loadImageFile(items[i].getAsFile());
         setPasteMode(false);
         break;
       }
     }
-    // clear any pasted text from contentEditable
     if (pasteTargetRef.current) pasteTargetRef.current.innerHTML = "";
   };
 
   const activatePasteMode = () => {
     setPasteMode(true);
-    setTimeout(() => {
-      if (pasteTargetRef.current) {
-        pasteTargetRef.current.focus();
-      }
-    }, 50);
+    setTimeout(() => { if (pasteTargetRef.current) pasteTargetRef.current.focus(); }, 50);
   };
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) loadImageFile(file);
-  };
-
+  const handleDrop = (e) => { e.preventDefault(); setIsDragging(false); loadImageFile(e.dataTransfer.files[0]); };
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = () => setIsDragging(false);
+
+  const resetForm = () => {
+    setEditId(null);
+    setForm(defaultForm());
+    setSessionOverridden(false);
+    if (fileRef.current) fileRef.current.value = "";
+  };
 
   const saveTrade = async () => {
     if (!form.entryDatetime || !form.direction || !form.tradeType) {
       alert("Please fill in Entry Date/Time, Direction, and Trade Type at minimum.");
       return;
     }
-    setSyncing(true);
-    setSyncError("");
+    setSyncing(true); setSyncError("");
     try {
       if (editId !== null) {
         const updated = { ...form, id: editId };
         await dbUpdate(updated);
         setTrades(ts => ts.map(t => t.id === editId ? updated : t));
-        setEditId(null);
       } else {
         const newTrade = { ...form, id: Date.now() };
         await dbInsert(newTrade);
         setTrades(ts => [newTrade, ...ts]);
       }
-      setForm(defaultForm());
-      setSessionOverridden(false);
-      if (fileRef.current) fileRef.current.value = "";
-    } catch(e) {
-      setSyncError("Save failed: " + e.message);
-    } finally {
-      setSyncing(false);
-    }
+      resetForm();
+    } catch(e) { setSyncError("Save failed: " + e.message); }
+    finally { setSyncing(false); }
   };
 
   const editTrade = (t) => {
@@ -631,24 +508,28 @@ export default function GCJournal() {
     window.scrollTo(0, 0);
   };
 
+  const duplicateTrade = (t) => {
+    const { id, screenshot, screenshotName, entryDatetime, exitDatetime, points, rrr, outcome, notes, mae, executionGrade, ...rest } = t;
+    setForm({ ...defaultForm(), ...rest, entryDatetime: "", exitDatetime: "", points: "", rrr: "", outcome: "Win", notes: "", mae: "", executionGrade: "Ungraded" });
+    setEditId(null);
+    setSessionOverridden(true);
+    setView("journal");
+    window.scrollTo(0, 0);
+  };
+
   const deleteTrade = async (id) => {
     if (!window.confirm("Delete this trade?")) return;
     setSyncing(true);
-    try {
-      await dbDelete(id);
-      setTrades(ts => ts.filter(t => t.id !== id));
-    } catch(e) { setSyncError("Delete failed: " + e.message); }
+    try { await dbDelete(id); setTrades(ts => ts.filter(t => t.id !== id)); }
+    catch(e) { setSyncError("Delete failed: " + e.message); }
     finally { setSyncing(false); }
   };
 
   const deleteAllTrades = async () => {
-    if (!window.confirm("Delete ALL trades from the cloud? This cannot be undone.")) return;
+    if (!window.confirm("Delete ALL trades? This cannot be undone.")) return;
     setSyncing(true);
-    try {
-      await dbDeleteAll();
-      setTrades([]);
-      setExpandedId(null);
-    } catch(e) { setSyncError("Delete all failed: " + e.message); }
+    try { await dbDeleteAll(); setTrades([]); setExpandedId(null); }
+    catch(e) { setSyncError("Delete all failed: " + e.message); }
     finally { setSyncing(false); }
   };
 
@@ -656,9 +537,8 @@ export default function GCJournal() {
     const headers = Object.keys(defaultForm()).filter(k => k !== "screenshot");
     const rows = trades.map(t => headers.map(h => JSON.stringify(t[h] ?? "")).join(","));
     const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     a.download = "gc_trades.csv";
     a.click();
   };
@@ -672,19 +552,16 @@ export default function GCJournal() {
         const lines = ev.target.result.split("\n").filter(Boolean);
         const headers = lines[0].split(",");
         const imported = lines.slice(1).map((line, i) => {
-          const vals = line.match(/(".*?"|[^,]+)/g) || [];
+          const vals = line.match(/(\".*?\"|[^,]+)/g) || [];
           const obj = {};
-          headers.forEach((h, idx) => {
-            try { obj[h] = JSON.parse(vals[idx] || "null"); } catch(e) { obj[h] = vals[idx] || ""; }
-          });
+          headers.forEach((h, idx) => { try { obj[h] = JSON.parse(vals[idx] || "null"); } catch(e) { obj[h] = vals[idx] || ""; } });
           obj.id = Date.now() + i;
           return obj;
         });
-        if (!window.confirm(`Import ${imported.length} trades to the cloud? This will ADD to existing trades.`)) return;
+        if (!window.confirm(`Import ${imported.length} trades? This ADDS to existing trades.`)) return;
         setSyncing(true);
-        for (const t of imported) { await dbInsert(t); }
-        const fresh = await dbFetchAll();
-        setTrades(fresh);
+        for (const t of imported) await dbInsert(t);
+        setTrades(await dbFetchAll());
         setSyncError("");
       } catch(err) { setSyncError("Import failed: " + err.message); }
       finally { setSyncing(false); if (importRef.current) importRef.current.value = ""; }
@@ -692,6 +569,19 @@ export default function GCJournal() {
     reader.readAsText(file);
   };
 
+  // ── Streak calculation ──────────────────────────────────────────────────
+  const streaks = useMemo(() => {
+    const sorted = [...trades].sort((a, b) => a.entryDatetime < b.entryDatetime ? -1 : 1);
+    let curWin = 0, curLoss = 0, maxWin = 0, maxLoss = 0;
+    sorted.forEach(t => {
+      if (t.outcome === "Win") { curWin++; curLoss = 0; maxWin = Math.max(maxWin, curWin); }
+      else if (t.outcome === "Loss") { curLoss++; curWin = 0; maxLoss = Math.max(maxLoss, curLoss); }
+      else { curWin = 0; curLoss = 0; }
+    });
+    return { curWin, curLoss, maxWin, maxLoss };
+  }, [trades]);
+
+  // ── Analytics ──────────────────────────────────────────────────────────
   const analyticsTrades = useMemo(() => {
     if (analyticsMode === "All") return trades;
     return trades.filter(t => (t.tradeMode || "Backtest") === analyticsMode);
@@ -700,19 +590,21 @@ export default function GCJournal() {
   const stats = useMemo(() => {
     const src = analyticsTrades;
     if (!src.length) return null;
-    const wins = src.filter(t => t.outcome === "Win");
+    const wins   = src.filter(t => t.outcome === "Win");
     const losses = src.filter(t => t.outcome === "Loss");
-    const winRate = ((wins.length / src.length) * 100).toFixed(1);
-    const avgRRR = (src.reduce((a, t) => a + (parseFloat(t.rrr) || 0), 0) / src.length).toFixed(2);
-    const avgPoints = (src.reduce((a, t) => a + (parseFloat(t.points) || 0), 0) / src.length).toFixed(1);
+    const winRate    = ((wins.length / src.length) * 100).toFixed(1);
+    const avgRRR     = (src.reduce((a, t) => a + (parseFloat(t.rrr) || 0), 0) / src.length).toFixed(2);
+    const avgPoints  = (src.reduce((a, t) => a + (parseFloat(t.points) || 0), 0) / src.length).toFixed(1);
     const totalPoints = src.reduce((a, t) => a + (parseFloat(t.points) || 0), 0).toFixed(1);
+    const avgMAE     = src.filter(t => t.mae).length
+      ? (src.filter(t => t.mae).reduce((a, t) => a + parseFloat(t.mae), 0) / src.filter(t => t.mae).length).toFixed(1)
+      : null;
 
     const byGrade = {};
-    GRADES.forEach(g => {
-      const gt = src.filter(t => t.grade === g);
-      const gw = gt.filter(t => t.outcome === "Win");
-      byGrade[g] = { total: gt.length, wins: gw.length };
-    });
+    GRADES.forEach(g => { const gt = src.filter(t => t.grade === g); byGrade[g] = { total: gt.length, wins: gt.filter(t => t.outcome === "Win").length }; });
+
+    const byExecGrade = {};
+    GRADES.forEach(g => { const gt = src.filter(t => t.executionGrade === g); byExecGrade[g] = { total: gt.length, wins: gt.filter(t => t.outcome === "Win").length }; });
 
     const byCandle = {}, bySession = {}, byType = {}, byHtf = {}, byStructure = {};
     src.forEach(t => {
@@ -734,42 +626,63 @@ export default function GCJournal() {
     let cum = 0;
     const equity = sorted.map(t => { cum += parseFloat(t.points) || 0; return { pts: parseFloat(cum.toFixed(1)), outcome: t.outcome }; });
 
-    return { wins: wins.length, losses: losses.length, winRate, avgRRR, avgPoints, totalPoints, byGrade, byCandle, bySession, byType, byHtf, byStructure, heatmap, equity };
+    // Setup vs execution grade comparison
+    const setupVsExec = { AA: 0, AB: 0, BA: 0, BB: 0, other: 0 };
+    src.forEach(t => {
+      const key = (t.grade || "U") + (t.executionGrade || "U");
+      if (key === "AA") setupVsExec.AA++;
+      else if (key === "AB" || key === "AC") setupVsExec.AB++;
+      else if (key === "BA" || key === "CA") setupVsExec.BA++;
+      else if (key === "BB") setupVsExec.BB++;
+      else setupVsExec.other++;
+    });
+
+    return { wins: wins.length, losses: losses.length, winRate, avgRRR, avgPoints, totalPoints, avgMAE, byGrade, byExecGrade, byCandle, bySession, byType, byHtf, byStructure, heatmap, equity, setupVsExec };
   }, [analyticsTrades]);
 
+  // ── Filtered / grouped log ─────────────────────────────────────────────
   const filteredTrades = useMemo(() => {
     return trades
       .filter(t => filterGrade === "All" || t.grade === filterGrade)
       .filter(t => filterOutcome === "All" || t.outcome === filterOutcome)
       .filter(t => filterMode === "All" || (t.tradeMode || "Backtest") === filterMode)
+      .filter(t => !filterSearch || (t.notes || "").toLowerCase().includes(filterSearch.toLowerCase()) || (t.tradeType || "").toLowerCase().includes(filterSearch.toLowerCase()) || (t.candlePattern || "").toLowerCase().includes(filterSearch.toLowerCase()))
       .sort((a, b) => (a.entryDatetime < b.entryDatetime ? 1 : -1));
-  }, [trades, filterGrade, filterOutcome, filterMode]);
+  }, [trades, filterGrade, filterOutcome, filterMode, filterSearch]);
+
+  // Group by date for daily P&L
+  const groupedByDate = useMemo(() => {
+    const groups = {};
+    filteredTrades.forEach(t => {
+      const d = t.entryDatetime ? t.entryDatetime.split("T")[0] : "Unknown";
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(t);
+    });
+    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filteredTrades]);
 
   const activeHours = useMemo(() => {
     if (!stats) return [];
     return Object.keys(stats.heatmap).map(Number).filter(h => stats.heatmap[h].Long.total > 0 || stats.heatmap[h].Short.total > 0);
   }, [stats]);
 
-  const inp = { width: "100%", background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "8px 12px", color: "#e6edf3", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };
-  const autoInp = { ...inp, background: "#111827", border: "1px solid #00e5a044", color: "#f5c842", fontWeight: 700 };
-  const lbl = { display: "block", fontSize: 10, fontWeight: 600, color: "#8b949e", textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 };
+  const inp      = { width: "100%", background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "8px 12px", color: "#e6edf3", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };
+  const autoInp  = { ...inp, background: "#111827", border: "1px solid #00e5a044", color: "#f5c842", fontWeight: 700 };
+  const lbl      = { display: "block", fontSize: 10, fontWeight: 600, color: "#8b949e", textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 };
   const autoBadge = <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(0,229,160,0.12)", padding: "1px 6px", borderRadius: 4, color: "#00e5a0", fontWeight: 700 }}>AUTO</span>;
 
   const syncIndicator = syncing
     ? <span style={{ fontSize: 10, color: "#f5c842", letterSpacing: 1 }}>saving...</span>
     : syncError
-    ? <span style={{ fontSize: 10, color: "#ff4d6d", maxWidth: 260 }}>{syncError}</span>
+    ? <span style={{ fontSize: 10, color: "#ff4d6d" }}>{syncError}</span>
     : trades.length > 0
     ? <span style={{ fontSize: 10, color: "#00e5a0" }}>cloud synced</span>
     : null;
 
+  const confluence = calcConfluence(form);
+
   const RULES = [
-    {
-      category: "Pre-Trade Checklist",
-      color: "#3b82f6",
-      icon: "CHECK",
-      description: "Must meet ALL before entering a trade",
-      checklist: true,
+    { category: "Pre-Trade Checklist", color: "#3b82f6", icon: "CHECK", description: "Must meet ALL before entering a trade", checklist: true,
       rules: [
         { id: "r1", text: "HTF bias (Daily/4H) is clearly Bullish or Bearish — no trading in Ranging or Uncertain conditions until you have 200+ trades of data" },
         { id: "r2", text: "Entry is in a confirmed kill zone — London open (3-5 AM ET) or New York open (9:30-10:30 AM ET) only" },
@@ -779,12 +692,7 @@ export default function GCJournal() {
         { id: "r6", text: "No active high-impact news within 15 minutes of entry (CPI, NFP, FOMC, Powell speeches)" },
       ],
     },
-    {
-      category: "Risk Rules",
-      color: "#ff4d6d",
-      icon: "RISK",
-      description: "Non-negotiable — follow these without exception",
-      checklist: false,
+    { category: "Risk Rules", color: "#ff4d6d", icon: "RISK", description: "Non-negotiable — follow these without exception", checklist: false,
       rules: [
         { id: "r7",  text: "Maximum 1% of account risked per trade — no exceptions" },
         { id: "r8",  text: "Maximum 2 trades open simultaneously" },
@@ -794,12 +702,7 @@ export default function GCJournal() {
         { id: "r12", text: "Never add to a losing position" },
       ],
     },
-    {
-      category: "Execution Rules",
-      color: "#f5c842",
-      icon: "EXEC",
-      description: "Discipline at the point of entry and exit",
-      checklist: false,
+    { category: "Execution Rules", color: "#f5c842", icon: "EXEC", description: "Discipline at the point of entry and exit", checklist: false,
       rules: [
         { id: "r13", text: "Only trade pre-defined setup types — if you cannot name the setup before entry it does not qualify" },
         { id: "r14", text: "Do not enter a trade in the last 30 minutes before a scheduled high-impact news event" },
@@ -808,12 +711,7 @@ export default function GCJournal() {
         { id: "r17", text: "Grade every trade A, B or C before you enter, not after — if it is a C setup, consider skipping it entirely" },
       ],
     },
-    {
-      category: "Post-Trade & Review",
-      color: "#a78bfa",
-      icon: "LOG",
-      description: "How you learn and improve over time",
-      checklist: false,
+    { category: "Post-Trade & Review", color: "#a78bfa", icon: "LOG", description: "How you learn and improve over time", checklist: false,
       rules: [
         { id: "r18", text: "Screenshot every trade immediately after closing — do not rely on memory" },
         { id: "r19", text: "Write your notes within 10 minutes of closing the trade while the reasoning is fresh" },
@@ -822,12 +720,7 @@ export default function GCJournal() {
         { id: "r22", text: "Never change your system rules mid-week — write proposed changes down and implement on Monday only" },
       ],
     },
-    {
-      category: "Mindset Rules",
-      color: "#00e5a0",
-      icon: "MIND",
-      description: "The mental edge that separates consistent traders",
-      checklist: false,
+    { category: "Mindset Rules", color: "#00e5a0", icon: "MIND", description: "The mental edge that separates consistent traders", checklist: false,
       rules: [
         { id: "r23", text: "A loss is not a mistake if you followed your rules — a loss on a valid setup is the cost of doing business" },
         { id: "r24", text: "A win on a rule-breaking trade is more dangerous than a loss — it reinforces bad habits" },
@@ -846,15 +739,15 @@ export default function GCJournal() {
       {/* LIGHTBOX */}
       {lightboxSrc && (
         <div onClick={() => setLightboxSrc(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.93)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out", padding: 24 }}>
-          <div style={{ position: "absolute", top: 20, right: 28, fontSize: 26, color: "#8b949e", cursor: "pointer", userSelect: "none" }} onClick={() => setLightboxSrc(null)}>x</div>
-          <img src={lightboxSrc} alt="chart" style={{ maxWidth: "95vw", maxHeight: "92vh", borderRadius: 10, border: "1px solid #2a2f3a", boxShadow: "0 0 60px rgba(0,0,0,0.8)" }} onClick={e => e.stopPropagation()} />
+          <div style={{ position: "absolute", top: 20, right: 28, fontSize: 26, color: "#8b949e", cursor: "pointer" }} onClick={() => setLightboxSrc(null)}>×</div>
+          <img src={lightboxSrc} alt="chart" style={{ maxWidth: "95vw", maxHeight: "92vh", borderRadius: 10, border: "1px solid #2a2f3a" }} onClick={e => e.stopPropagation()} />
         </div>
       )}
 
       {/* HEADER */}
       <div style={{ background: "linear-gradient(135deg, #0d1117, #111827)", borderBottom: "1px solid #1f2937", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 38, height: 38, background: "linear-gradient(135deg, #f5c842, #ff9a3c)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{"⚡"}</div>
+          <div style={{ width: 38, height: 38, background: "linear-gradient(135deg, #f5c842, #ff9a3c)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>⚡</div>
           <div>
             <div style={{ fontSize: 17, fontWeight: 700, color: "#f5c842", letterSpacing: 2 }}>GC FUTURES JOURNAL</div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -869,9 +762,9 @@ export default function GCJournal() {
               {v}
             </button>
           ))}
-          <button onClick={exportCSV} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Export CSV</button>
+          <button onClick={exportCSV} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>CSV ↓</button>
           <label style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
-            Import CSV<input ref={importRef} type="file" accept=".csv" onChange={importCSV} style={{ display: "none" }} />
+            CSV ↑<input ref={importRef} type="file" accept=".csv" onChange={importCSV} style={{ display: "none" }} />
           </label>
           <select value={userTz} onChange={e => { setUserTz(e.target.value); setSessionOverridden(false); }} style={{ background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "7px 10px", color: "#f5c842", fontSize: 10, fontFamily: "inherit" }}>
             {TIMEZONES.map(t => <option key={t.tz} value={t.tz}>{t.label}</option>)}
@@ -879,10 +772,28 @@ export default function GCJournal() {
         </div>
       </div>
 
+      {/* STREAK BANNER */}
+      {!loading && trades.length > 0 && (
+        <div style={{ background: "#0d1117", borderBottom: "1px solid #1f2937", padding: "8px 24px", display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3 }}>STREAKS</span>
+          <span style={{ fontSize: 11, color: streaks.curWin > 0 ? "#00e5a0" : "#4b5563" }}>
+            Current: {streaks.curWin > 0 ? `🔥 ${streaks.curWin}W` : streaks.curLoss > 0 ? `❄️ ${streaks.curLoss}L` : "—"}
+          </span>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>Best win streak: <span style={{ color: "#00e5a0" }}>{streaks.maxWin}W</span></span>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>Worst loss streak: <span style={{ color: "#ff4d6d" }}>{streaks.maxLoss}L</span></span>
+          {streaks.curLoss >= 2 && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: "#ff4d6d", background: "rgba(255,77,109,0.1)", padding: "2px 10px", borderRadius: 20, border: "1px solid #ff4d6d44" }}>
+              {streaks.curLoss >= 3 ? "⚠ STOP DAY — 3 losses reached" : "⚠ Warning: 2 losses — 1 more = stop day"}
+            </span>
+          )}
+          <span style={{ marginLeft: "auto", fontSize: 9, color: "#4b5563" }}>Press N for new trade</span>
+        </div>
+      )}
+
       {/* LOADING */}
       {loading && (
         <div style={{ textAlign: "center", padding: 80, color: "#f5c842", fontSize: 13 }}>
-          <div style={{ marginBottom: 12, fontSize: 24 }}>{"⚡"}</div>
+          <div style={{ marginBottom: 12, fontSize: 24 }}>⚡</div>
           Loading trades from cloud...
         </div>
       )}
@@ -891,13 +802,25 @@ export default function GCJournal() {
       {!loading && view === "journal" && (
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px" }}>
           <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 16, padding: 24 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, marginBottom: 20, textTransform: "uppercase" }}>
-              {editId ? "Edit Trade" : "+ Log New Trade"}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase" }}>
+                {editId ? "Edit Trade" : "+ Log New Trade"}
+              </div>
+              {/* Confluence Score */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2 }}>CONFLUENCE</span>
+                <div style={{ display: "flex", gap: 3 }}>
+                  {[1,2,3,4,5,6].map(i => (
+                    <div key={i} style={{ width: 14, height: 14, borderRadius: 3, background: i <= confluence ? confluenceColor(confluence) : "#1f2937", transition: "background 0.3s" }} />
+                  ))}
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: confluenceColor(confluence) }}>{confluence}/6</span>
+              </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(195px, 1fr))", gap: 14 }}>
 
-              <div><label style={lbl}>Entry Date &amp; Time</label><input type="datetime-local" value={form.entryDatetime} onChange={e => set("entryDatetime", e.target.value)} style={inp} /></div>
-              <div><label style={lbl}>Exit Date &amp; Time</label><input type="datetime-local" value={form.exitDatetime} onChange={e => set("exitDatetime", e.target.value)} style={inp} /></div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(195px, 1fr))", gap: 14 }}>
+              <div><label style={lbl}>Entry Date &amp; Time (ET)</label><input type="datetime-local" value={form.entryDatetime} onChange={e => set("entryDatetime", e.target.value)} style={inp} /></div>
+              <div><label style={lbl}>Exit Date &amp; Time (ET)</label><input type="datetime-local" value={form.exitDatetime} onChange={e => set("exitDatetime", e.target.value)} style={inp} /></div>
               <div><label style={{ ...lbl, color: "#f5c842" }}>Duration {autoBadge}</label><input readOnly value={calcDuration(form.entryDatetime, form.exitDatetime)} placeholder="--" style={autoInp} /></div>
 
               <div>
@@ -943,6 +866,12 @@ export default function GCJournal() {
               <div><label style={lbl}>Take Profit</label><input type="number" step="0.1" value={form.takeProfit} onChange={e => set("takeProfit", e.target.value)} placeholder="2370.0" style={inp} /></div>
               <div><label style={{ ...lbl, color: "#f5c842" }}>Points {autoBadge}</label><input readOnly value={form.points} placeholder="--" style={autoInp} /></div>
               <div><label style={{ ...lbl, color: "#f5c842" }}>RRR {autoBadge}</label><input readOnly value={form.rrr} placeholder="--" style={autoInp} /></div>
+
+              <div>
+                <label style={lbl}>MAE (Max Adverse Excursion)</label>
+                <input type="number" step="0.1" value={form.mae} onChange={e => set("mae", e.target.value)} placeholder="Points against you" style={inp} />
+              </div>
+
               <div><label style={lbl}>Candle Pattern</label><select value={form.candlePattern} onChange={e => set("candlePattern", e.target.value)} style={inp}><option value="">Select...</option>{CANDLE_PATTERNS.map(s => <option key={s}>{s}</option>)}</select></div>
               <div><label style={lbl}>Wick Direction</label><select value={form.wickDirection} onChange={e => set("wickDirection", e.target.value)} style={inp}>{["None","Upper","Lower","Both"].map(s => <option key={s}>{s}</option>)}</select></div>
 
@@ -951,16 +880,14 @@ export default function GCJournal() {
                   News Event
                   {form.news !== "None" && <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(0,229,160,0.12)", padding: "1px 6px", borderRadius: 4, color: "#00e5a0", fontWeight: 700 }}>AUTO</span>}
                 </label>
-                <select value={form.news} onChange={e => set("news", e.target.value)}
-                  style={{ ...inp, ...(form.news !== "None" ? { border: "1px solid #00e5a044", color: "#f5c842", fontWeight: 700 } : {}) }}>
+                <select value={form.news} onChange={e => set("news", e.target.value)} style={{ ...inp, ...(form.news !== "None" ? { border: "1px solid #00e5a044", color: "#f5c842", fontWeight: 700 } : {}) }}>
                   {NEWS_EVENTS.map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
               {form.news !== "None" && (
                 <div>
                   <label style={lbl}>News Impact</label>
-                  <select value={form.newsImpact} onChange={e => set("newsImpact", e.target.value)}
-                    style={{ ...inp, color: form.newsImpact === "High" ? "#ff4d6d" : form.newsImpact === "Medium" ? "#f5c842" : "#8b949e", fontWeight: 700 }}>
+                  <select value={form.newsImpact} onChange={e => set("newsImpact", e.target.value)} style={{ ...inp, color: form.newsImpact === "High" ? "#ff4d6d" : form.newsImpact === "Medium" ? "#f5c842" : "#8b949e", fontWeight: 700 }}>
                     {["Low","Medium","High"].map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
@@ -974,8 +901,15 @@ export default function GCJournal() {
               </div>
 
               <div>
-                <label style={lbl}>Setup Grade</label>
+                <label style={lbl}>Setup Grade (before entry)</label>
                 <select value={form.grade} onChange={e => set("grade", e.target.value)} style={{ ...inp, color: gradeColor(form.grade), fontWeight: 700 }}>
+                  {GRADES.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label style={lbl}>Execution Grade (after close)</label>
+                <select value={form.executionGrade} onChange={e => set("executionGrade", e.target.value)} style={{ ...inp, color: gradeColor(form.executionGrade), fontWeight: 700 }}>
                   {GRADES.map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
@@ -988,97 +922,39 @@ export default function GCJournal() {
 
             <div style={{ marginTop: 14 }}>
               <label style={lbl}>Chart Screenshot</label>
-              <input ref={fileRef} type="file" accept="image/*" onChange={handleScreenshot} style={{ display: "none" }} id="ss-upload" />
-
-              {/* Drop / paste zone */}
-              <div
-                ref={dropZoneRef}
-                onPaste={handlePaste}
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                tabIndex={0}
-                style={{
-                  border: `2px dashed ${isDragging ? "#f5c842" : form.screenshot ? "#00e5a044" : "#2a2f3a"}`,
-                  borderRadius: 12,
-                  background: isDragging ? "rgba(245,200,66,0.05)" : "#070b12",
-                  padding: form.screenshot ? "10px" : "28px 16px",
-                  textAlign: "center",
-                  transition: "all 0.2s ease",
-                  cursor: "pointer",
-                  outline: "none",
-                }}
-                onClick={() => !form.screenshot && fileRef.current && fileRef.current.click()}
-              >
+              <input ref={fileRef} type="file" accept="image/*" onChange={e => loadImageFile(e.target.files[0])} style={{ display: "none" }} />
+              <div ref={dropZoneRef} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} tabIndex={0}
+                style={{ border: `2px dashed ${isDragging ? "#f5c842" : form.screenshot ? "#00e5a044" : "#2a2f3a"}`, borderRadius: 12, background: isDragging ? "rgba(245,200,66,0.05)" : "#070b12", padding: form.screenshot ? "10px" : "28px 16px", textAlign: "center", transition: "all 0.2s ease", cursor: "pointer", outline: "none" }}
+                onClick={() => !form.screenshot && fileRef.current && fileRef.current.click()}>
                 {form.screenshot ? (
                   <div>
-                    <img
-                      src={form.screenshot}
-                      alt="preview"
-                      onClick={(e) => { e.stopPropagation(); setLightboxSrc(form.screenshot); }}
-                      style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: "1px solid #2a2f3a", cursor: "zoom-in", display: "block", margin: "0 auto" }}
-                    />
+                    <img src={form.screenshot} alt="preview" onClick={e => { e.stopPropagation(); setLightboxSrc(form.screenshot); }} style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: "1px solid #2a2f3a", cursor: "zoom-in", display: "block", margin: "0 auto" }} />
                     <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 10 }}>
                       <span style={{ fontSize: 10, color: "#6b7280" }}>{form.screenshotName}</span>
-                      <button onClick={(e) => { e.stopPropagation(); setForm(f => ({ ...f, screenshot: null, screenshotName: "" })); if (fileRef.current) fileRef.current.value = ""; }}
-                        style={{ fontSize: 10, color: "#ff4d6d", background: "transparent", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}>Remove</button>
-                      <button onClick={(e) => { e.stopPropagation(); fileRef.current && fileRef.current.click(); }}
-                        style={{ fontSize: 10, color: "#f5c842", background: "transparent", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}>Replace</button>
+                      <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, screenshot: null, screenshotName: "" })); if (fileRef.current) fileRef.current.value = ""; }} style={{ fontSize: 10, color: "#ff4d6d", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Remove</button>
+                      <button onClick={e => { e.stopPropagation(); fileRef.current && fileRef.current.click(); }} style={{ fontSize: 10, color: "#f5c842", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Replace</button>
                     </div>
                   </div>
                 ) : pasteMode ? (
                   <div>
-                    <div style={{ fontSize: 12, color: "#f5c842", fontWeight: 700, marginBottom: 10 }}>
-                      Ready to paste — press Cmd+V or long-press and tap Paste
-                    </div>
-                    {/* Hidden contentEditable — Safari/iPad requires a real editable element to fire paste events */}
-                    <div
-                      ref={pasteTargetRef}
-                      contentEditable
-                      suppressContentEditableWarning
-                      onPaste={handlePaste}
-                      style={{
-                        minHeight: 48,
-                        border: "1px dashed #f5c842",
-                        borderRadius: 8,
-                        padding: "12px",
-                        color: "#f5c842",
-                        fontSize: 11,
-                        outline: "none",
-                        background: "rgba(245,200,66,0.04)",
-                        textAlign: "center",
-                        lineHeight: 2,
-                      }}
-                    >
-                      Tap here then paste your screenshot
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); setPasteMode(false); }}
-                      style={{ marginTop: 8, fontSize: 10, color: "#6b7280", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                      Cancel
-                    </button>
+                    <div style={{ fontSize: 12, color: "#f5c842", fontWeight: 700, marginBottom: 10 }}>Ready — press Cmd+V or long-press and tap Paste</div>
+                    <div ref={pasteTargetRef} contentEditable suppressContentEditableWarning onPaste={handlePaste} style={{ minHeight: 48, border: "1px dashed #f5c842", borderRadius: 8, padding: "12px", color: "#f5c842", fontSize: 11, outline: "none", background: "rgba(245,200,66,0.04)", textAlign: "center", lineHeight: 2 }}>Tap here then paste</div>
+                    <button onClick={e => { e.stopPropagation(); setPasteMode(false); }} style={{ marginTop: 8, fontSize: 10, color: "#6b7280", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
                   </div>
                 ) : (
                   <div>
-                    <div style={{ fontSize: 24, marginBottom: 10, opacity: 0.3 }}>{"[ ]"}</div>
+                    <div style={{ fontSize: 24, marginBottom: 10, opacity: 0.3 }}>[ ]</div>
                     <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); fileRef.current && fileRef.current.click(); }}
-                        style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #f5c842", background: "transparent", color: "#f5c842", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-                      >Browse / Photos</button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); activatePasteMode(); }}
-                        style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #3b82f6", background: "transparent", color: "#3b82f6", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-                      >Paste from Clipboard</button>
+                      <button onClick={e => { e.stopPropagation(); fileRef.current && fileRef.current.click(); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #f5c842", background: "transparent", color: "#f5c842", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Browse / Photos</button>
+                      <button onClick={e => { e.stopPropagation(); activatePasteMode(); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #3b82f6", background: "transparent", color: "#3b82f6", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Paste from Clipboard</button>
                     </div>
-                    <div style={{ fontSize: 10, color: "#4b5563" }}>
-                      iPad: screenshot with Side+Volume, open Photos → Share → Copy Photo, then tap Paste from Clipboard
-                    </div>
+                    <div style={{ fontSize: 10, color: "#4b5563" }}>iPad: screenshot → Share → Copy Photo → Paste from Clipboard</div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* News proximity warning banner */}
+            {/* News warning */}
             {(() => {
               const detected = detectNewsEvent(form.entryDatetime);
               if (!detected) return null;
@@ -1086,22 +962,18 @@ export default function GCJournal() {
                 <div style={{ marginTop: 14, padding: "12px 16px", borderRadius: 10, background: "rgba(245,200,66,0.08)", border: "1px solid #f5c84266", display: "flex", alignItems: "center", gap: 12 }}>
                   <span style={{ fontSize: 16 }}>!</span>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#f5c842", marginBottom: 2 }}>
-                      News Event Window Detected: {detected.event}
-                    </div>
-                    <div style={{ fontSize: 10, color: "#8b949e" }}>
-                      Your entry time falls within 30 minutes of a scheduled {detected.event} release. News field has been auto-populated. Verify this is a news-impacted trade before saving.
-                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#f5c842", marginBottom: 2 }}>News Window: {detected.event}</div>
+                    <div style={{ fontSize: 10, color: "#8b949e" }}>Entry falls within 30 min of {detected.event}. Verify this is intentional before saving.</div>
                   </div>
                 </div>
               );
             })()}
 
-            <div style={{ marginTop: 20, display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ marginTop: 20, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <button onClick={saveTrade} disabled={syncing} style={{ padding: "11px 28px", background: syncing ? "#2a2f3a" : "linear-gradient(135deg, #f5c842, #ff9a3c)", borderRadius: 10, border: "none", color: syncing ? "#6b7280" : "#070b12", fontWeight: 700, fontSize: 12, cursor: syncing ? "not-allowed" : "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
                 {syncing ? "Saving..." : editId ? "Update Trade" : "Save Trade"}
               </button>
-              {editId && <button onClick={() => { setEditId(null); setForm(defaultForm()); setSessionOverridden(false); }} style={{ padding: "11px 20px", background: "transparent", borderRadius: 10, border: "1px solid #2a2f3a", color: "#8b949e", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>}
+              {editId && <button onClick={resetForm} style={{ padding: "11px 20px", background: "transparent", borderRadius: 10, border: "1px solid #2a2f3a", color: "#8b949e", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>}
               {syncError && <span style={{ fontSize: 11, color: "#ff4d6d" }}>{syncError}</span>}
             </div>
           </div>
@@ -1111,53 +983,74 @@ export default function GCJournal() {
       {/* ═══ LOG ═══ */}
       {!loading && view === "log" && (
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "28px 20px" }}>
-          <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+          {/* Filters + search */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 10, color: "#8b949e", letterSpacing: 2 }}>FILTER:</span>
-            <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)} style={{ background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 6, padding: "6px 10px", color: "#e6edf3", fontSize: 11, fontFamily: "inherit" }}>
-              <option value="All">All Grades</option>{GRADES.map(g => <option key={g}>{g}</option>)}
-            </select>
-            <select value={filterOutcome} onChange={e => setFilterOutcome(e.target.value)} style={{ background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 6, padding: "6px 10px", color: "#e6edf3", fontSize: 11, fontFamily: "inherit" }}>
-              <option value="All">All Outcomes</option><option>Win</option><option>Loss</option><option>Breakeven</option>
-            </select>
-            <select value={filterMode} onChange={e => setFilterMode(e.target.value)} style={{ background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 6, padding: "6px 10px", color: "#e6edf3", fontSize: 11, fontFamily: "inherit" }}>
-              <option value="All">All Modes</option>{TRADE_MODES.map(m => <option key={m}>{m}</option>)}
-            </select>
+            {[
+              { val: filterGrade, set: setFilterGrade, opts: ["All Grades", ...GRADES] },
+              { val: filterOutcome, set: setFilterOutcome, opts: ["All Outcomes","Win","Loss","Breakeven"] },
+              { val: filterMode, set: setFilterMode, opts: ["All Modes", ...TRADE_MODES] },
+            ].map(({ val, set: setter, opts }, i) => (
+              <select key={i} value={val} onChange={e => setter(e.target.value)} style={{ background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 6, padding: "6px 10px", color: "#e6edf3", fontSize: 11, fontFamily: "inherit" }}>
+                {opts.map(o => <option key={o} value={o.startsWith("All") ? "All" : o}>{o}</option>)}
+              </select>
+            ))}
+            <input value={filterSearch} onChange={e => setFilterSearch(e.target.value)} placeholder="Search notes, type, pattern..." style={{ background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 6, padding: "6px 12px", color: "#e6edf3", fontSize: 11, fontFamily: "inherit", minWidth: 200 }} />
             <span style={{ fontSize: 10, color: "#6b7280" }}>{filteredTrades.length} trades</span>
             {trades.length > 0 && <button onClick={deleteAllTrades} style={{ marginLeft: "auto", padding: "6px 14px", borderRadius: 7, border: "1px solid #ff4d6d55", background: "rgba(255,77,109,0.07)", color: "#ff4d6d", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Delete All</button>}
           </div>
 
           {filteredTrades.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 60, color: "#4b5563", fontSize: 13 }}>No trades yet.</div>
+            <div style={{ textAlign: "center", padding: 60, color: "#4b5563", fontSize: 13 }}>No trades found.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {filteredTrades.map(t => (
-                <div key={t.id} style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, overflow: "hidden" }}>
-                  <div onClick={() => setExpandedId(expandedId === t.id ? null : t.id)} style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 10, color: "#6b7280", minWidth: 108 }}>{formatDatetime(t.entryDatetime)}</span>
-                    <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: modeColor(t.tradeMode || "Backtest") + "18", color: modeColor(t.tradeMode || "Backtest") }}>{t.tradeMode || "Backtest"}</span>
-                    <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: t.direction === "Long" ? "rgba(0,229,160,0.1)" : "rgba(255,77,109,0.1)", color: t.direction === "Long" ? "#00e5a0" : "#ff4d6d" }}>{t.direction || "--"}</span>
-                    <span style={{ fontSize: 11, color: "#e6edf3", minWidth: 76 }}>{t.tradeType || "--"}</span>
-                    <span style={{ fontSize: 11, color: "#9ca3af" }}>{t.candlePattern || "--"}</span>
-                    <span style={{ fontSize: 10, color: "#6b7280" }}>{t.session || "--"}</span>
-                    {t.htfBias && <span style={{ fontSize: 10, color: t.htfBias === "Bullish" ? "#00e5a0" : t.htfBias === "Bearish" ? "#ff4d6d" : "#f5c842" }}>{t.htfBias}</span>}
-                    <span style={{ marginLeft: "auto", fontWeight: 700, fontSize: 12, color: parseFloat(t.points) >= 0 ? "#00e5a0" : "#ff4d6d" }}>{t.points ? `${t.points}pts` : "--"}</span>
-                    <span style={{ fontSize: 11, color: "#f5c842" }}>RRR:{t.rrr || "--"}</span>
-                    <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${gradeColor(t.grade)}22`, color: gradeColor(t.grade) }}>{t.grade}</span>
-                    <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${outcomeColor(t.outcome)}22`, color: outcomeColor(t.outcome) }}>{t.outcome}</span>
-                    <button onClick={e => { e.stopPropagation(); editTrade(t); }} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>Edit</button>
-                    <button onClick={e => { e.stopPropagation(); deleteTrade(t.id); }} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #ff4d6d44", background: "transparent", color: "#ff4d6d", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>Del</button>
-                  </div>
-                  {expandedId === t.id && (
-                    <div style={{ borderTop: "1px solid #1f2937", padding: "14px 16px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(155px, 1fr))", gap: 10 }}>
-                      {[["Entry", formatDatetime(t.entryDatetime)],["Exit", formatDatetime(t.exitDatetime)],["Duration", calcDuration(t.entryDatetime, t.exitDatetime)],["Session", t.session],["HTF Bias", t.htfBias],["Market Structure", t.marketStructure],["Lot Size", t.lotSize],["Entry Price", t.entryPrice],["Exit Price", t.exitPrice],["Stop Loss", t.stopLoss],["Take Profit", t.takeProfit],["Wick", t.wickDirection !== "None" ? t.wickDirection : ""],["News", t.news !== "None" ? t.news : ""],["News Impact", t.news !== "None" ? t.newsImpact : ""]].map(([k, v]) => v ? (
-                        <div key={k}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>{k}</div><div style={{ fontSize: 12, color: "#e6edf3" }}>{v}</div></div>
-                      ) : null)}
-                      {t.notes && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Notes</div><div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>{t.notes}</div></div>}
-                      {t.screenshot && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Screenshot</div><img src={t.screenshot} alt="chart" onClick={() => setLightboxSrc(t.screenshot)} style={{ maxWidth: "100%", maxHeight: 240, borderRadius: 8, border: "1px solid #2a2f3a", cursor: "zoom-in", display: "block" }} /><div style={{ fontSize: 10, color: "#6b7280", marginTop: 3 }}>Click to enlarge</div></div>}
+            <div>
+              {groupedByDate.map(([date, dayTrades]) => {
+                const dayPts = dayTrades.reduce((a, t) => a + (parseFloat(t.points) || 0), 0);
+                const dayWins = dayTrades.filter(t => t.outcome === "Win").length;
+                return (
+                  <div key={date} style={{ marginBottom: 20 }}>
+                    {/* Daily header */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "8px 12px", background: "#0d1117", borderRadius: "10px 10px 0 0", border: "1px solid #1f2937", borderBottom: "none" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#f5c842" }}>{formatDate(date + "T00:00")}</span>
+                      <span style={{ fontSize: 10, color: "#6b7280" }}>{dayTrades.length} trades</span>
+                      <span style={{ fontSize: 10, color: "#6b7280" }}>{dayWins}W / {dayTrades.length - dayWins}L</span>
+                      <span style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, color: dayPts >= 0 ? "#00e5a0" : "#ff4d6d" }}>{dayPts >= 0 ? "+" : ""}{dayPts.toFixed(1)} pts</span>
                     </div>
-                  )}
-                </div>
-              ))}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      {dayTrades.map(t => (
+                        <div key={t.id} style={{ background: "#0d1117", border: "1px solid #1f2937", borderTop: "none", overflow: "hidden" }}>
+                          <div onClick={() => setExpandedId(expandedId === t.id ? null : t.id)} style={{ padding: "11px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 10, color: "#6b7280", minWidth: 50 }}>{t.entryDatetime ? t.entryDatetime.split("T")[1]?.slice(0,5) : "--"}</span>
+                            <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: modeColor(t.tradeMode || "Backtest") + "18", color: modeColor(t.tradeMode || "Backtest") }}>{t.tradeMode || "BT"}</span>
+                            <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: t.direction === "Long" ? "rgba(0,229,160,0.1)" : "rgba(255,77,109,0.1)", color: t.direction === "Long" ? "#00e5a0" : "#ff4d6d" }}>{t.direction || "--"}</span>
+                            <span style={{ fontSize: 11, color: "#e6edf3", minWidth: 70 }}>{t.tradeType || "--"}</span>
+                            <span style={{ fontSize: 11, color: "#9ca3af" }}>{t.candlePattern || "--"}</span>
+                            <span style={{ fontSize: 10, color: "#6b7280" }}>{t.session || "--"}</span>
+                            {t.htfBias && <span style={{ fontSize: 10, color: t.htfBias === "Bullish" ? "#00e5a0" : t.htfBias === "Bearish" ? "#ff4d6d" : "#f5c842" }}>{t.htfBias}</span>}
+                            <span style={{ marginLeft: "auto", fontWeight: 700, fontSize: 12, color: parseFloat(t.points) >= 0 ? "#00e5a0" : "#ff4d6d" }}>{t.points ? `${t.points}pts` : "--"}</span>
+                            <span style={{ fontSize: 11, color: "#f5c842" }}>RRR:{t.rrr || "--"}</span>
+                            <span style={{ padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${gradeColor(t.grade)}22`, color: gradeColor(t.grade) }} title="Setup grade">{t.grade}</span>
+                            <span style={{ padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${gradeColor(t.executionGrade || "Ungraded")}15`, color: gradeColor(t.executionGrade || "Ungraded"), border: `1px solid ${gradeColor(t.executionGrade || "Ungraded")}44` }} title="Execution grade">E:{t.executionGrade || "?"}</span>
+                            <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${outcomeColor(t.outcome)}22`, color: outcomeColor(t.outcome) }}>{t.outcome}</span>
+                            <button onClick={e => { e.stopPropagation(); duplicateTrade(t); }} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #2a2f3a", background: "transparent", color: "#6b7280", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }} title="Duplicate setup">Copy</button>
+                            <button onClick={e => { e.stopPropagation(); editTrade(t); }} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>Edit</button>
+                            <button onClick={e => { e.stopPropagation(); deleteTrade(t.id); }} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #ff4d6d44", background: "transparent", color: "#ff4d6d", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>Del</button>
+                          </div>
+                          {expandedId === t.id && (
+                            <div style={{ borderTop: "1px solid #1f2937", padding: "14px 16px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(155px, 1fr))", gap: 10 }}>
+                              {[["Entry", formatDatetime(t.entryDatetime)],["Exit", formatDatetime(t.exitDatetime)],["Duration", calcDuration(t.entryDatetime, t.exitDatetime)],["Session", t.session],["HTF Bias", t.htfBias],["Market Structure", t.marketStructure],["Lot Size", t.lotSize],["Entry Price", t.entryPrice],["Exit Price", t.exitPrice],["Stop Loss", t.stopLoss],["Take Profit", t.takeProfit],["MAE", t.mae ? t.mae + " pts" : ""],["Wick", t.wickDirection !== "None" ? t.wickDirection : ""],["News", t.news !== "None" ? t.news : ""],["News Impact", t.news !== "None" ? t.newsImpact : ""],["Setup Grade", t.grade],["Exec Grade", t.executionGrade || "Ungraded"]].map(([k, v]) => v ? (
+                                <div key={k}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>{k}</div><div style={{ fontSize: 12, color: "#e6edf3" }}>{v}</div></div>
+                              ) : null)}
+                              {t.notes && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Notes</div><div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>{t.notes}</div></div>}
+                              {t.screenshot && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Screenshot</div><img src={t.screenshot} alt="chart" onClick={() => setLightboxSrc(t.screenshot)} style={{ maxWidth: "100%", maxHeight: 240, borderRadius: 8, border: "1px solid #2a2f3a", cursor: "zoom-in", display: "block" }} /></div>}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1179,25 +1072,42 @@ export default function GCJournal() {
           {!stats ? (
             <div style={{ textAlign: "center", padding: 80, color: "#4b5563", fontSize: 13 }}>No trade data yet. Log some trades first.</div>
           ) : (<>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
-              {[["Total Trades", analyticsTrades.length, "#e6edf3"],["Win Rate", `${stats.winRate}%`, "#00e5a0"],["Total Points", stats.totalPoints, parseFloat(stats.totalPoints) >= 0 ? "#00e5a0" : "#ff4d6d"],["Avg Pts/Trade", stats.avgPoints, "#e6edf3"],["Avg RRR", stats.avgRRR, "#f5c842"],["W / L", `${stats.wins} / ${stats.losses}`, "#e6edf3"]].map(([label, val, color]) => (
+            {/* KPI Cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(155px, 1fr))", gap: 12, marginBottom: 16 }}>
+              {[
+                ["Total Trades", analyticsTrades.length, "#e6edf3"],
+                ["Win Rate", `${stats.winRate}%`, "#00e5a0"],
+                ["Total Points", stats.totalPoints, parseFloat(stats.totalPoints) >= 0 ? "#00e5a0" : "#ff4d6d"],
+                ["Avg Pts/Trade", stats.avgPoints, "#e6edf3"],
+                ["Avg RRR", stats.avgRRR, "#f5c842"],
+                ["W / L", `${stats.wins} / ${stats.losses}`, "#e6edf3"],
+                ["Win Streak", `${streaks.curWin}W cur / ${streaks.maxWin}W best`, "#00e5a0"],
+                ["Loss Streak", `${streaks.curLoss}L cur / ${streaks.maxLoss}L worst`, streaks.curLoss >= 3 ? "#ff4d6d" : "#e6edf3"],
+                ...(stats.avgMAE ? [["Avg MAE", `${stats.avgMAE} pts`, "#a78bfa"]] : []),
+              ].map(([label, val, color]) => (
                 <div key={label} style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: "16px 18px" }}>
                   <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color }}>{val}</div>
+                  <div style={{ fontSize: label.includes("Streak") ? 14 : 22, fontWeight: 700, color }}>{val}</div>
                 </div>
               ))}
             </div>
 
+            {/* Equity Curve */}
             <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 20, marginBottom: 14 }}>
               <div style={{ fontSize: 10, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 4, fontWeight: 700 }}>Equity Curve — Cumulative Points</div>
               <div style={{ fontSize: 10, color: "#4b5563", marginBottom: 10 }}>Dots: green=win red=loss</div>
               <EquityCurve data={stats.equity} />
             </div>
 
+            {/* Charts grid */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
               <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 18 }}>
                 <div style={{ fontSize: 10, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 14, fontWeight: 700 }}>Setup Grade</div>
                 {GRADES.map(g => <BarRow key={g} label={`Grade ${g}`} wins={stats.byGrade[g].wins} total={stats.byGrade[g].total} color={gradeColor(g)} />)}
+              </div>
+              <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 18 }}>
+                <div style={{ fontSize: 10, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 14, fontWeight: 700 }}>Execution Grade</div>
+                {GRADES.map(g => <BarRow key={g} label={`Exec ${g}`} wins={stats.byExecGrade[g].wins} total={stats.byExecGrade[g].total} color={gradeColor(g)} />)}
               </div>
               <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 18 }}>
                 <div style={{ fontSize: 10, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 14, fontWeight: 700 }}>Session Performance</div>
@@ -1224,12 +1134,30 @@ export default function GCJournal() {
                 {Object.entries(stats.byType).sort((a,b)=>(b[1].wins/b[1].total)-(a[1].wins/a[1].total)).map(([s,d]) => <BarRow key={s} label={s} wins={d.wins} total={d.total} color="#f97316" />)}
                 {!Object.keys(stats.byType).length && <div style={{ color: "#4b5563", fontSize: 11 }}>No data yet</div>}
               </div>
+
+              {/* Setup vs Execution grade insight */}
+              <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 18 }}>
+                <div style={{ fontSize: 10, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 14, fontWeight: 700 }}>Setup vs Execution</div>
+                <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 12 }}>Are you executing A setups well?</div>
+                {[
+                  ["A setup, A execution", stats.setupVsExec.AA, "#00e5a0"],
+                  ["A setup, poor execution", stats.setupVsExec.AB, "#f5c842"],
+                  ["B/C setup, good execution", stats.setupVsExec.BA, "#3b82f6"],
+                  ["B setup, B execution", stats.setupVsExec.BB, "#8b949e"],
+                  ["Other combos", stats.setupVsExec.other, "#4b5563"],
+                ].map(([label, count, color]) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>{label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color }}>{count}</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Heatmap */}
             <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 20, marginBottom: 14 }}>
               <div style={{ fontSize: 10, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 4, fontWeight: 700 }}>Time of Day Heatmap (ET Hours)</div>
-              <div style={{ fontSize: 10, color: "#4b5563", marginBottom: 14 }}>Win rate by hour x direction. Only hours with trades shown.</div>
+              <div style={{ fontSize: 10, color: "#4b5563", marginBottom: 14 }}>Win rate by hour × direction. Only hours with trades shown.</div>
               {activeHours.length === 0 ? <div style={{ color: "#4b5563", fontSize: 11 }}>No trades with timestamps yet.</div> : (
                 <div style={{ overflowX: "auto" }}>
                   <div style={{ display: "grid", gridTemplateColumns: `80px repeat(${activeHours.length}, minmax(52px, 1fr))`, gap: 4, minWidth: activeHours.length * 56 + 84 }}>
@@ -1279,11 +1207,9 @@ export default function GCJournal() {
         </div>
       )}
 
-
       {/* RULES */}
       {!loading && view === "rules" && (
         <div style={{ maxWidth: 900, margin: "0 auto", padding: "28px 20px" }}>
-
           <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 14, padding: "20px 24px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 4 }}>Trading Rules & Pre-Trade Checklist</div>
@@ -1326,19 +1252,13 @@ export default function GCJournal() {
                   const isChecked = checkedRules[rule.id] || false;
                   return (
                     <div key={rule.id} onClick={() => section.checklist && setCheckedRules(c => ({ ...c, [rule.id]: !c[rule.id] }))}
-                      style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "12px 14px", borderRadius: 10,
-                        background: isChecked ? section.color + "10" : "#070b12",
-                        border: "1px solid " + (isChecked ? section.color + "44" : "#1f2937"),
-                        cursor: section.checklist ? "pointer" : "default", transition: "all 0.2s ease" }}>
+                      style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "12px 14px", borderRadius: 10, background: isChecked ? section.color + "10" : "#070b12", border: "1px solid " + (isChecked ? section.color + "44" : "#1f2937"), cursor: section.checklist ? "pointer" : "default", transition: "all 0.2s ease" }}>
                       {section.checklist ? (
-                        <div style={{ width: 20, height: 20, borderRadius: 5, border: "2px solid " + (isChecked ? section.color : "#2a2f3a"),
-                          background: isChecked ? section.color : "transparent", flexShrink: 0, marginTop: 1,
-                          display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s ease" }}>
-                          {isChecked && <span style={{ fontSize: 11, color: "#070b12", fontWeight: 900 }}>x</span>}
+                        <div style={{ width: 20, height: 20, borderRadius: 5, border: "2px solid " + (isChecked ? section.color : "#2a2f3a"), background: isChecked ? section.color : "transparent", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s ease" }}>
+                          {isChecked && <span style={{ fontSize: 11, color: "#070b12", fontWeight: 900 }}>✓</span>}
                         </div>
                       ) : (
-                        <div style={{ width: 22, height: 22, borderRadius: 5, background: section.color + "18", flexShrink: 0,
-                          display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>
+                        <div style={{ width: 22, height: 22, borderRadius: 5, background: section.color + "18", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>
                           <span style={{ fontSize: 9, fontWeight: 700, color: section.color }}>{idx + 1}</span>
                         </div>
                       )}
@@ -1357,7 +1277,6 @@ export default function GCJournal() {
               <br />The goal is consistent execution — the profits follow the process.
             </div>
           </div>
-
         </div>
       )}
 
