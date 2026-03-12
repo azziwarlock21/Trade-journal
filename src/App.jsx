@@ -351,28 +351,22 @@ const TIMEZONES = [
 function detectSession(entryDatetime) {
   if (!entryDatetime || !entryDatetime.includes("T")) return "";
   try {
-    const dt = new Date(entryDatetime);
-    const etStr = dt.toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
-    const parts = etStr.split(":");
-    const etHour = parseInt(parts[0], 10);
-    const etMin = parseInt(parts[1], 10) || 0;
-    const etMins = etHour * 60 + etMin;
-    if (etMins >= 1080) return "Asia";
-    if (etMins < 480) return "London";
-    if (etMins < 570) return "London/NY Overlap";
-    if (etMins < 720) return "London/NY Overlap";
-    if (etMins < 1020) return "New York";
-    if (etMins < 1080) return "After Hours";
-    return "";
+    // Parse time directly from string — user enters ET times regardless of browser timezone
+    const timePart = entryDatetime.split("T")[1];
+    const [h, m] = timePart.split(":").map(Number);
+    const etMins = h * 60 + m;
+    if (etMins >= 1080 || etMins < 180) return "Asia";           // 18:00+ or before 03:00
+    if (etMins < 480)                   return "London";          // 03:00–08:00
+    if (etMins < 720)                   return "London/NY Overlap"; // 08:00–12:00
+    if (etMins < 1020)                  return "New York";        // 12:00–17:00
+    return "After Hours";                                         // 17:00–18:00
   } catch(e) { return ""; }
 }
 
 function getETHour(entryDatetime) {
   if (!entryDatetime || !entryDatetime.includes("T")) return null;
   try {
-    const dt = new Date(entryDatetime);
-    const etStr = dt.toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false });
-    return parseInt(etStr, 10);
+    return parseInt(entryDatetime.split("T")[1].split(":")[0], 10);
   } catch(e) { return null; }
 }
 
