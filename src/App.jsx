@@ -389,6 +389,14 @@ export default function GCJournal() {
   const [checkedRules, setCheckedRules]   = useState({});
   const [isDragging, setIsDragging]       = useState(false);
   const [pasteMode, setPasteMode]         = useState(false);
+
+  // ── Position Calculator state ──────────────────────────────────────────
+  const [calcAccount, setCalcAccount]     = useState("100000");
+  const [calcRisk, setCalcRisk]           = useState("0.5");
+  const [calcEntry, setCalcEntry]         = useState("");
+  const [calcSL, setCalcSL]               = useState("");
+  const [calcTP, setCalcTP]               = useState("");
+  const [calcDir, setCalcDir]             = useState("Long");
   const fileRef       = useRef();
   const importRef     = useRef();
   const dropZoneRef   = useRef();
@@ -811,9 +819,9 @@ export default function GCJournal() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {["journal","log","analytics","rules"].map(v => (
+          {["journal","log","analytics","rules","calc"].map(v => (
             <button key={v} onClick={() => setView(v)} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${view === v ? "#f5c842" : "#2a2f3a"}`, background: view === v ? "rgba(245,200,66,0.1)" : "transparent", color: view === v ? "#f5c842" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
-              {v}
+              {v === "calc" ? "Position" : v}
             </button>
           ))}
           <button onClick={exportCSV} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>CSV ↓</button>
@@ -1393,6 +1401,154 @@ export default function GCJournal() {
           </div>
         </div>
       )}
+
+      {/* ═══ POSITION CALCULATOR ═══ */}
+      {!loading && view === "calc" && (() => {
+        // GC contract spec: 1 lot = 100 troy oz, tick = $0.10/oz = $10/tick, 1 point = $100
+        const GC_POINT_VALUE = 100; // $ per full point per lot
+        const account  = parseFloat(calcAccount) || 0;
+        const riskPct  = parseFloat(calcRisk) / 100;
+        const entry    = parseFloat(calcEntry);
+        const sl       = parseFloat(calcSL);
+        const tp       = parseFloat(calcTP);
+
+        const riskDollars = account * riskPct;
+
+        let slPoints = null, tpPoints = null, lotSize = null;
+        let lossAmt = null, winAmt = null, rrr = null;
+
+        if (!isNaN(entry) && !isNaN(sl) && entry !== sl) {
+          slPoints = calcDir === "Long" ? (entry - sl) : (sl - entry);
+          if (slPoints > 0) {
+            lotSize = riskDollars / (slPoints * GC_POINT_VALUE);
+            lossAmt = lotSize * slPoints * GC_POINT_VALUE;
+          }
+        }
+        if (!isNaN(entry) && !isNaN(tp) && entry !== tp) {
+          tpPoints = calcDir === "Long" ? (tp - entry) : (entry - tp);
+          if (tpPoints > 0 && lotSize) {
+            winAmt = lotSize * tpPoints * GC_POINT_VALUE;
+          }
+        }
+        if (slPoints > 0 && tpPoints > 0) {
+          rrr = (tpPoints / slPoints).toFixed(2);
+        }
+
+        const fmt = (n) => n !== null && !isNaN(n) ? n.toFixed(2) : "--";
+        const fmtDollar = (n) => n !== null && !isNaN(n) ? "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "--";
+
+        const cinp = { width: "100%", background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "10px 14px", color: "#e6edf3", fontSize: 14, boxSizing: "border-box", fontFamily: "inherit" };
+        const clbl = { display: "block", fontSize: 10, fontWeight: 600, color: "#8b949e", textTransform: "uppercase", letterSpacing: 2, marginBottom: 5 };
+        const card = (label, value, color, sub) => (
+          <div style={{ background: "#0d1117", border: `1px solid ${color}33`, borderRadius: 14, padding: "20px 22px" }}>
+            <div style={{ fontSize: 10, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 10 }}>{label}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+            {sub && <div style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}>{sub}</div>}
+          </div>
+        );
+
+        return (
+          <div style={{ maxWidth: 780, margin: "0 auto", padding: "28px 20px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 20 }}>
+              GC Position Size Calculator
+            </div>
+
+            {/* Account + Risk */}
+            <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 14, padding: 24, marginBottom: 16 }}>
+              <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 14, fontWeight: 700 }}>Account Settings</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+                <div>
+                  <label style={clbl}>Account Size ($)</label>
+                  <input type="number" value={calcAccount} onChange={e => setCalcAccount(e.target.value)} placeholder="100000" style={cinp} />
+                </div>
+                <div>
+                  <label style={clbl}>Risk Per Trade</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {["0.5","1"].map(r => (
+                      <button key={r} onClick={() => setCalcRisk(r)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: `1px solid ${calcRisk === r ? "#f5c842" : "#2a2f3a"}`, background: calcRisk === r ? "rgba(245,200,66,0.12)" : "transparent", color: calcRisk === r ? "#f5c842" : "#6b7280", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                        {r}%
+                      </button>
+                    ))}
+                    <input type="number" step="0.1" min="0.1" max="5" value={calcRisk} onChange={e => setCalcRisk(e.target.value)} style={{ ...cinp, width: 72, flexShrink: 0, fontSize: 13, textAlign: "center" }} />
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 10, color: "#6b7280", letterSpacing: 2 }}>RISK AMOUNT:</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: "#ff4d6d" }}>{fmtDollar(riskDollars)}</span>
+                <span style={{ fontSize: 10, color: "#4b5563" }}>({calcRisk}% of {fmtDollar(account)})</span>
+              </div>
+            </div>
+
+            {/* Trade inputs */}
+            <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 14, padding: 24, marginBottom: 16 }}>
+              <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 14, fontWeight: 700 }}>Trade Levels</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14 }}>
+                <div>
+                  <label style={clbl}>Direction</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {["Long","Short"].map(d => (
+                      <button key={d} onClick={() => setCalcDir(d)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: `1px solid ${calcDir === d ? (d === "Long" ? "#00e5a0" : "#ff4d6d") : "#2a2f3a"}`, background: calcDir === d ? (d === "Long" ? "rgba(0,229,160,0.1)" : "rgba(255,77,109,0.1)") : "transparent", color: calcDir === d ? (d === "Long" ? "#00e5a0" : "#ff4d6d") : "#6b7280", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label style={clbl}>Entry Price</label>
+                  <input type="number" step="0.1" value={calcEntry} onChange={e => setCalcEntry(e.target.value)} placeholder="2350.0" style={cinp} />
+                </div>
+                <div>
+                  <label style={clbl}>Stop Loss</label>
+                  <input type="number" step="0.1" value={calcSL} onChange={e => setCalcSL(e.target.value)} placeholder="2340.0" style={{ ...cinp, border: "1px solid #ff4d6d44" }} />
+                </div>
+                <div>
+                  <label style={clbl}>Take Profit</label>
+                  <input type="number" step="0.1" value={calcTP} onChange={e => setCalcTP(e.target.value)} placeholder="2375.0" style={{ ...cinp, border: "1px solid #00e5a044" }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Results */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
+              {card("Lot Size", fmt(lotSize), "#f5c842", "GC contracts to trade")}
+              {card("SL Distance", slPoints > 0 ? `${slPoints.toFixed(1)} pts` : "--", "#ff4d6d", slPoints > 0 ? `${(slPoints * 10).toFixed(0)} ticks` : null)}
+              {card("TP Distance", tpPoints > 0 ? `${tpPoints.toFixed(1)} pts` : "--", "#00e5a0", tpPoints > 0 ? `${(tpPoints * 10).toFixed(0)} ticks` : null)}
+              {card("RRR", rrr || "--", parseFloat(rrr) >= 2 ? "#00e5a0" : parseFloat(rrr) >= 1 ? "#f5c842" : "#ff4d6d", rrr ? (parseFloat(rrr) >= 2 ? "✓ Meets minimum" : "⚠ Below 1:2 target") : null)}
+              {card("Max Loss", fmtDollar(lossAmt), "#ff4d6d", lossAmt ? `${calcRisk}% of account` : null)}
+              {card("Potential Win", fmtDollar(winAmt), "#00e5a0", winAmt && lossAmt ? `${(winAmt / lossAmt).toFixed(1)}× your risk` : null)}
+            </div>
+
+            {/* Info box */}
+            <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: "14px 18px", display: "flex", gap: 24, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>GC Contract Spec</div>
+                <div style={{ fontSize: 11, color: "#4b5563", lineHeight: 1.8 }}>
+                  1 lot = 100 troy oz &nbsp;·&nbsp; 1 point = $100 &nbsp;·&nbsp; 1 tick = $10
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Formula</div>
+                <div style={{ fontSize: 11, color: "#4b5563", lineHeight: 1.8 }}>
+                  Lot Size = Risk $ ÷ (SL points × $100)
+                </div>
+              </div>
+              {lotSize !== null && lotSize > 0 && (
+                <div>
+                  <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Micro Lots</div>
+                  <div style={{ fontSize: 11, color: "#4b5563", lineHeight: 1.8 }}>
+                    MGC = {(lotSize * 10).toFixed(1)} contracts (1/10th size)
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => { setCalcEntry(""); setCalcSL(""); setCalcTP(""); }} style={{ marginTop: 14, padding: "8px 18px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#6b7280", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: 2 }}>
+              CLEAR
+            </button>
+          </div>
+        );
+      })()}
 
       <div style={{ textAlign: "center", padding: "20px", color: "#1f2937", fontSize: 9, letterSpacing: 3, marginTop: 16 }}>
         GC FUTURES JOURNAL · CLOUD SYNCED VIA SUPABASE · {trades.length} TRADES
