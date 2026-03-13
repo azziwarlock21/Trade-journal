@@ -873,7 +873,23 @@ export default function GCJournal() {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(195px, 1fr))", gap: 14 }}>
-              <div><label style={lbl}>Entry Date &amp; Time (ET)</label><input type="datetime-local" value={form.entryDatetime} onChange={e => set("entryDatetime", e.target.value)} style={inp} /></div>
+
+              {/* confluence fields get a diamond marker in the label */}
+              {/* c1 — HTF Bias */}
+              {/* c2 — Entry Datetime (kill zone) */}
+              {/* c3 — Candle Pattern */}
+              {/* c4 — Stop Loss (placed behind structure) */}
+              {/* c5 — RRR ≥ 2 */}
+              {/* c6 — News clear */}
+
+              <div>
+                <label style={lbl}>
+                  Entry Date &amp; Time (ET)
+                  <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316", fontWeight: 700 }} title="Confluence: kill zone entry">◆</span>
+                </label>
+                <input type="datetime-local" value={form.entryDatetime} onChange={e => set("entryDatetime", e.target.value)} style={inp} />
+              </div>
+
               <div><label style={lbl}>Exit Date &amp; Time (ET)</label><input type="datetime-local" value={form.exitDatetime} onChange={e => set("exitDatetime", e.target.value)} style={inp} /></div>
               <div><label style={{ ...lbl, color: "#f5c842" }}>Duration {autoBadge}</label><input readOnly value={calcDuration(form.entryDatetime, form.exitDatetime)} placeholder="--" style={autoInp} /></div>
 
@@ -906,7 +922,10 @@ export default function GCJournal() {
               </div>
 
               <div>
-                <label style={lbl}>HTF Bias (Daily/4H)</label>
+                <label style={lbl}>
+                  HTF Bias (Daily/4H)
+                  <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316", fontWeight: 700 }} title="Confluence: clear directional bias">◆</span>
+                </label>
                 <select value={form.htfBias} onChange={e => set("htfBias", e.target.value)} style={{ ...inp, color: form.htfBias === "Bullish" ? "#00e5a0" : form.htfBias === "Bearish" ? "#ff4d6d" : form.htfBias === "Ranging" ? "#f5c842" : "#e6edf3" }}>
                   <option value="">Select...</option>{HTF_BIASES.map(s => <option key={s}>{s}</option>)}
                 </select>
@@ -916,10 +935,31 @@ export default function GCJournal() {
               <div><label style={lbl}>Lot Size</label><input type="number" step="0.1" value={form.lotSize} onChange={e => set("lotSize", e.target.value)} placeholder="1.0" style={inp} /></div>
               <div><label style={lbl}>Entry Price</label><input type="number" step="0.1" value={form.entryPrice} onChange={e => set("entryPrice", e.target.value)} placeholder="2350.0" style={inp} /></div>
               <div><label style={lbl}>Exit Price</label><input type="number" step="0.1" value={form.exitPrice} onChange={e => set("exitPrice", e.target.value)} placeholder="2360.0" style={inp} /></div>
-              <div><label style={lbl}>Stop Loss</label><input type="number" step="0.1" value={form.stopLoss} onChange={e => set("stopLoss", e.target.value)} placeholder="2345.0" style={inp} /></div>
+
+              <div>
+                <label style={lbl}>
+                  Stop Loss
+                  <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316", fontWeight: 700 }} title="Confluence: SL placed behind structure">◆</span>
+                </label>
+                <input type="number" step="0.1" value={form.stopLoss} onChange={e => set("stopLoss", e.target.value)} placeholder="2345.0" style={inp} />
+              </div>
+
               <div><label style={lbl}>Take Profit</label><input type="number" step="0.1" value={form.takeProfit} onChange={e => set("takeProfit", e.target.value)} placeholder="2370.0" style={inp} /></div>
-              <div><label style={{ ...lbl, color: "#f5c842" }}>Points {autoBadge}</label><input readOnly value={form.points} placeholder="--" style={autoInp} /></div>
-              <div><label style={{ ...lbl, color: "#f5c842" }}>RRR {autoBadge}</label><input readOnly value={form.rrr} placeholder="--" style={autoInp} /></div>
+
+              <div>
+                <label style={{ ...lbl, color: "#f5c842" }}>
+                  Points {autoBadge}
+                </label>
+                <input readOnly value={form.points} placeholder="--" style={autoInp} />
+              </div>
+
+              <div>
+                <label style={{ ...lbl, color: "#f5c842" }}>
+                  RRR {autoBadge}
+                  <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316", fontWeight: 700 }} title="Confluence: RRR ≥ 2.0">◆</span>
+                </label>
+                <input readOnly value={form.rrr} placeholder="--" style={autoInp} />
+              </div>
 
               <div>
                 <label style={lbl}>MAE Extreme Price</label>
@@ -930,18 +970,27 @@ export default function GCJournal() {
                 <input readOnly value={form.mae} placeholder="--" style={autoInp} />
               </div>
 
-              <div><label style={lbl}>Candle Pattern</label><select value={form.candlePattern} onChange={e => set("candlePattern", e.target.value)} style={inp}><option value="">Select...</option>{CANDLE_PATTERNS.map(s => <option key={s}>{s}</option>)}</select></div>
+              <div>
+                <label style={lbl}>
+                  Candle Pattern
+                  <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316", fontWeight: 700 }} title="Confluence: signal candle present">◆</span>
+                </label>
+                <select value={form.candlePattern} onChange={e => set("candlePattern", e.target.value)} style={inp}><option value="">Select...</option>{CANDLE_PATTERNS.map(s => <option key={s}>{s}</option>)}</select>
+              </div>
+
               <div><label style={lbl}>Wick Direction</label><select value={form.wickDirection} onChange={e => set("wickDirection", e.target.value)} style={inp}>{["None","Upper","Lower","Both"].map(s => <option key={s}>{s}</option>)}</select></div>
 
               <div>
                 <label style={lbl}>
                   News Event
+                  <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316", fontWeight: 700 }} title="Confluence: no high-impact news nearby">◆</span>
                   {form.news !== "None" && <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(0,229,160,0.12)", padding: "1px 6px", borderRadius: 4, color: "#00e5a0", fontWeight: 700 }}>AUTO</span>}
                 </label>
                 <select value={form.news} onChange={e => set("news", e.target.value)} style={{ ...inp, ...(form.news !== "None" ? { border: "1px solid #00e5a044", color: "#f5c842", fontWeight: 700 } : {}) }}>
                   {NEWS_EVENTS.map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
+
               {form.news !== "None" && (
                 <div>
                   <label style={lbl}>News Impact</label>
@@ -952,8 +1001,8 @@ export default function GCJournal() {
               )}
 
               <div>
-                <label style={lbl}>Outcome {autoBadge}</label>
-                <select value={form.outcome} onChange={e => set("outcome", e.target.value)} style={{ ...inp, color: outcomeColor(form.outcome), fontWeight: 700 }}>
+                <label style={{ ...lbl, color: "#f5c842" }}>Outcome {autoBadge}</label>
+                <select value={form.outcome} onChange={e => set("outcome", e.target.value)} style={{ ...inp, background: "#111827", border: "1px solid #00e5a044", color: outcomeColor(form.outcome), fontWeight: 700 }}>
                   {["Win","Loss","Breakeven"].map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
@@ -971,6 +1020,13 @@ export default function GCJournal() {
                   {GRADES.map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
+
+            </div>
+
+            {/* confluence legend */}
+            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 9, color: "#f97316", fontWeight: 700 }}>◆</span>
+              <span style={{ fontSize: 9, color: "#4b5563", letterSpacing: 1 }}>CONTRIBUTES TO CONFLUENCE SCORE</span>
             </div>
 
             <div style={{ marginTop: 14 }}>
