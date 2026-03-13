@@ -406,6 +406,15 @@ export default function GCJournal() {
   const [isDragging, setIsDragging]       = useState(false);
   const [pasteMode, setPasteMode]         = useState(false);
 
+  // ── AI Coach state ─────────────────────────────────────────────────────
+  const [coachAnalysis, setCoachAnalysis] = useState("");
+  const [coachLoading, setCoachLoading]   = useState(false);
+  const [coachError, setCoachError]       = useState("");
+  const [reviewTrade, setReviewTrade]     = useState(null);
+  const [reviewResult, setReviewResult]   = useState("");
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError]     = useState("");
+
   // ── Position Calculator state ──────────────────────────────────────────
   const [calcAccount, setCalcAccount]     = useState("100000");
   const [calcRisk, setCalcRisk]           = useState("0.5");
@@ -829,9 +838,9 @@ export default function GCJournal() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {["journal","log","analytics","rules","calc"].map(v => (
+          {["journal","log","analytics","rules","calc","coach"].map(v => (
             <button key={v} onClick={() => setView(v)} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${view === v ? "#f5c842" : "#2a2f3a"}`, background: view === v ? "rgba(245,200,66,0.1)" : "transparent", color: view === v ? "#f5c842" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
-              {v === "calc" ? "Position" : v}
+              {v === "calc" ? "Position" : v === "coach" ? "AI Coach" : v}
             </button>
           ))}
           <button onClick={exportCSV} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>CSV ↓</button>
@@ -1580,6 +1589,274 @@ export default function GCJournal() {
             <button onClick={() => { setCalcEntry(""); setCalcSL(""); setCalcTP(""); }} style={{ marginTop: 14, padding: "8px 18px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#6b7280", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: 2 }}>
               CLEAR
             </button>
+          </div>
+        );
+      })()}
+
+      {/* ═══ AI COACH ═══ */}
+      {!loading && view === "coach" && (() => {
+
+        // ── Data analysis (no API) ─────────────────────────────────────
+        const runDataAnalysis = () => {
+          if (trades.length < 5) { setCoachError("Log at least 5 trades before running analysis."); return; }
+          setCoachLoading(true); setCoachError(""); setCoachAnalysis("");
+
+          const src = trades;
+          const wins = src.filter(t => t.outcome === "Win");
+          const losses = src.filter(t => t.outcome === "Loss");
+          const wr = wins.length / src.length;
+
+          // Best/worst sessions
+          const bySess = {};
+          src.forEach(t => { if (!t.session) return; if (!bySess[t.session]) bySess[t.session] = { w: 0, l: 0 }; t.outcome === "Win" ? bySess[t.session].w++ : bySess[t.session].l++; });
+          const sessRanked = Object.entries(bySess).map(([s, d]) => ({ s, wr: d.w / (d.w + d.l), total: d.w + d.l })).sort((a, b) => b.wr - a.wr);
+
+          // Best/worst candle patterns
+          const byCandle = {};
+          src.forEach(t => { if (!t.candlePattern || t.candlePattern === "None") return; if (!byCandle[t.candlePattern]) byCandle[t.candlePattern] = { w: 0, l: 0 }; t.outcome === "Win" ? byCandle[t.candlePattern].w++ : byCandle[t.candlePattern].l++; });
+          const candleRanked = Object.entries(byCandle).map(([c, d]) => ({ c, wr: d.w / (d.w + d.l), total: d.w + d.l })).sort((a, b) => b.wr - a.wr);
+
+          // Setup vs execution gap
+          const aSetupPoorExec = src.filter(t => t.grade === "A" && t.executionGrade && t.executionGrade !== "A" && t.executionGrade !== "Ungraded").length;
+          const aSetupAExec = src.filter(t => t.grade === "A" && t.executionGrade === "A").length;
+
+          // MAE vs SL analysis
+          const tradesWithMAE = src.filter(t => t.mae && t.stopLoss && t.entryPrice);
+          const avgMAE = tradesWithMAE.length ? (tradesWithMAE.reduce((a, t) => a + parseFloat(t.mae), 0) / tradesWithMAE.length).toFixed(1) : null;
+          const winnerMAE = tradesWithMAE.filter(t => t.outcome === "Win");
+          const avgWinMAE = winnerMAE.length ? (winnerMAE.reduce((a, t) => a + parseFloat(t.mae), 0) / winnerMAE.length).toFixed(1) : null;
+
+          // Grade performance
+          const byGrade = {};
+          src.forEach(t => { if (!byGrade[t.grade]) byGrade[t.grade] = { w: 0, total: 0 }; byGrade[t.grade].total++; if (t.outcome === "Win") byGrade[t.grade].w++; });
+
+          // HTF bias alignment
+          const aligned = src.filter(t => (t.direction === "Long" && t.htfBias === "Bullish") || (t.direction === "Short" && t.htfBias === "Bearish"));
+          const misaligned = src.filter(t => (t.direction === "Long" && t.htfBias === "Bearish") || (t.direction === "Short" && t.htfBias === "Bullish"));
+          const alignedWR = aligned.length ? (aligned.filter(t => t.outcome === "Win").length / aligned.length * 100).toFixed(0) : null;
+          const misalignedWR = misaligned.length ? (misaligned.filter(t => t.outcome === "Win").length / misaligned.length * 100).toFixed(0) : null;
+
+          // Avg RRR on wins
+          const avgRRRWins = wins.length ? (wins.reduce((a, t) => a + (parseFloat(t.rrr) || 0), 0) / wins.length).toFixed(2) : null;
+
+          // Loss streaks
+          let maxLossStreak = 0, cur = 0;
+          [...src].sort((a,b) => a.entryDatetime < b.entryDatetime ? -1 : 1).forEach(t => { if (t.outcome === "Loss") { cur++; maxLossStreak = Math.max(maxLossStreak, cur); } else cur = 0; });
+
+          // Build findings
+          const findings = [];
+
+          // Win rate verdict
+          if (wr >= 0.6) findings.push({ type: "positive", title: "Strong win rate", body: `Your win rate is ${(wr*100).toFixed(1)}% across ${src.length} trades. This is above the 60% threshold that makes your edge statistically significant. Keep protecting it.` });
+          else if (wr >= 0.45) findings.push({ type: "warning", title: "Win rate needs improvement", body: `Your win rate is ${(wr*100).toFixed(1)}%. With a 2.5 RRR target you need at least 45% to break even, but 55%+ to grow consistently. Focus on skipping C-grade setups.` });
+          else findings.push({ type: "critical", title: "Win rate is below breakeven", body: `Your win rate is ${(wr*100).toFixed(1)}%. At this level you are losing money even with good RRR. Return to backtesting and do not trade live until this is above 50% over 50+ trades.` });
+
+          // Session insight
+          if (sessRanked.length >= 2) {
+            const best = sessRanked[0], worst = sessRanked[sessRanked.length - 1];
+            if (best.total >= 3) findings.push({ type: "positive", title: `Best session: ${best.s}`, body: `You win ${(best.wr*100).toFixed(0)}% of trades in the ${best.s} session (${best.total} trades). This is your strongest window — prioritise entries here.` });
+            if (worst.total >= 3 && worst.wr < 0.4) findings.push({ type: "critical", title: `Avoid: ${worst.s} session`, body: `Your win rate in ${worst.s} is only ${(worst.wr*100).toFixed(0)}% across ${worst.total} trades. This session is costing you money. Consider eliminating it entirely until you have more data.` });
+          }
+
+          // Candle pattern insight
+          if (candleRanked.length >= 2) {
+            const best = candleRanked[0], worst = candleRanked[candleRanked.length - 1];
+            if (best.total >= 3) findings.push({ type: "positive", title: `Best pattern: ${best.c}`, body: `${best.c} has a ${(best.wr*100).toFixed(0)}% win rate over ${best.total} trades. This is your highest-probability signal — weight your entries toward this pattern.` });
+            if (worst.total >= 3 && worst.wr < 0.4) findings.push({ type: "warning", title: `Weak pattern: ${worst.c}`, body: `${worst.c} is only winning ${(worst.wr*100).toFixed(0)}% of the time across ${worst.total} trades. Either refine how you identify this pattern or stop trading it until your sample is larger.` });
+          }
+
+          // Setup vs execution gap
+          if (aSetupPoorExec > 0) {
+            const pct = ((aSetupPoorExec / (aSetupPoorExec + aSetupAExec)) * 100).toFixed(0);
+            findings.push({ type: "warning", title: "Execution gap on A setups", body: `${pct}% of your A-grade setups were executed poorly (B or C execution grade). You are identifying good trades but not entering/managing them cleanly. Review these trades specifically — common causes are chasing entry, moving SL, or exiting early.` });
+          }
+
+          // HTF alignment
+          if (alignedWR && misalignedWR && misaligned.length >= 3) {
+            findings.push({ type: misalignedWR < 40 ? "critical" : "warning", title: "Counter-trend trades underperforming", body: `Trades aligned with HTF bias win ${alignedWR}% of the time. Counter-trend trades (direction vs HTF bias) win only ${misalignedWR}% across ${misaligned.length} trades. ${parseInt(misalignedWR) < 40 ? "Stop trading against the HTF trend entirely." : "Reduce counter-trend frequency and require higher confluence for those entries."}` });
+          }
+
+          // MAE insight
+          if (avgWinMAE && avgWinMAE > 8) findings.push({ type: "warning", title: "High heat on winning trades", body: `Your winners experience an average of ${avgWinMAE} points of adverse movement before recovering. This suggests your entries are slightly early or your stop is absorbing unnecessary heat. Consider waiting for a second confirmation before entering.` });
+          else if (avgWinMAE && avgWinMAE <= 4) findings.push({ type: "positive", title: "Tight entry precision", body: `Average MAE on winning trades is only ${avgWinMAE} points — price moves in your direction almost immediately after entry. Your timing and entry triggers are working well.` });
+
+          // Grade insight
+          const aGrade = byGrade["A"];
+          const cGrade = byGrade["C"];
+          if (aGrade && cGrade && aGrade.total >= 3 && cGrade.total >= 3) {
+            const aWR = (aGrade.w / aGrade.total * 100).toFixed(0);
+            const cWR = (cGrade.w / cGrade.total * 100).toFixed(0);
+            if (parseInt(aWR) > parseInt(cWR) + 15) findings.push({ type: "positive", title: "Grading system is calibrated", body: `A-grade setups win ${aWR}% vs C-grade at ${cWR}%. Your pre-trade grading is accurately identifying quality — keep skipping C setups if your rule says to.` });
+            else if (parseInt(aWR) <= parseInt(cWR)) findings.push({ type: "warning", title: "Grading is not predictive yet", body: `A-grade setups win ${aWR}% vs C-grade at ${cWR}%. Your grading isn't differentiating quality yet — review what you're using to assign A vs C and tighten the criteria.` });
+          }
+
+          // RRR on wins
+          if (avgRRRWins && parseFloat(avgRRRWins) < 1.8) findings.push({ type: "critical", title: "RRR on wins is too low", body: `Your average RRR on winning trades is ${avgRRRWins}. With a 60% win rate target you need at least 2.0 to grow consistently. You may be exiting winners too early — let price reach TP rather than taking partials.` });
+          else if (avgRRRWins && parseFloat(avgRRRWins) >= 2.3) findings.push({ type: "positive", title: "Strong RRR on winners", body: `Average RRR on winning trades is ${avgRRRWins} — above the 2.0 minimum. Your targets are being respected and you are not cutting winners short.` });
+
+          // Loss streak
+          if (maxLossStreak >= 3) findings.push({ type: "warning", title: `Max loss streak: ${maxLossStreak}`, body: `You have had a run of ${maxLossStreak} consecutive losses. Review whether these losses happened on valid setups or rule breaks. If valid, this is normal variance. If rule breaks, identify the trigger — time of day, session, news proximity — and add a specific guard for it.` });
+
+          setCoachAnalysis(JSON.stringify(findings));
+          setCoachLoading(false);
+        };
+
+        // ── AI trade review (API) ──────────────────────────────────────
+        const runTradeReview = async (trade) => {
+          setReviewTrade(trade);
+          setReviewResult(""); setReviewError(""); setReviewLoading(true);
+          try {
+            const tradeContext = `
+Trade details:
+- Date/Time: ${trade.entryDatetime || "unknown"}
+- Direction: ${trade.direction}
+- Trade Type: ${trade.tradeType}
+- HTF Bias: ${trade.htfBias}
+- Market Structure: ${trade.marketStructure}
+- Session: ${trade.session}
+- Candle Pattern: ${trade.candlePattern}
+- Wick Direction: ${trade.wickDirection}
+- Entry Price: ${trade.entryPrice}
+- Stop Loss: ${trade.stopLoss}
+- Take Profit: ${trade.takeProfit}
+- Points: ${trade.points}
+- RRR: ${trade.rrr}
+- MAE Points: ${trade.mae || "not logged"}
+- News: ${trade.news} (${trade.newsImpact} impact)
+- Outcome: ${trade.outcome}
+- Setup Grade: ${trade.grade}
+- Execution Grade: ${trade.executionGrade || "ungraded"}
+- Notes: ${trade.notes || "none"}
+            `.trim();
+
+            const hasScreenshots = trade.screenshots && trade.screenshots.length > 0;
+
+            const messages = hasScreenshots ? [{
+              role: "user",
+              content: [
+                ...trade.screenshots.map(ss => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: ss.data.split(",")[1] } })),
+                { type: "text", text: `You are an expert GC gold futures trading coach reviewing a trade from a student's journal. Analyse the trade data and chart screenshot(s) provided. Give specific, honest, actionable feedback.\n\n${tradeContext}\n\nProvide feedback in these sections:\n1. Setup Quality — was this a valid setup based on the data and chart?\n2. Entry Timing — was the entry well-timed or could it have been better?\n3. Risk Management — SL placement, RRR, MAE assessment\n4. What Was Done Well — at least one positive\n5. What To Improve — specific and actionable, not generic\n6. Overall Verdict — one sentence summary\n\nBe direct and specific. Reference the actual prices and chart structure visible. Do not be vague.` }
+              ]
+            }] : [{
+              role: "user",
+              content: `You are an expert GC gold futures trading coach reviewing a trade from a student's journal. No chart screenshot was provided so analyse the data only.\n\n${tradeContext}\n\nProvide feedback in these sections:\n1. Setup Quality — assess based on the data provided\n2. Risk Management — SL/TP placement and RRR\n3. What Was Done Well\n4. What To Improve — specific and actionable\n5. Overall Verdict — one sentence\n\nBe direct and honest.`
+            }];
+
+            const res = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages })
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error.message);
+            const text = data.content.map(b => b.text || "").join("\n").trim();
+            setReviewResult(text);
+          } catch(e) {
+            setReviewError("Review failed: " + e.message);
+          } finally {
+            setReviewLoading(false);
+          }
+        };
+
+        const findings = coachAnalysis ? JSON.parse(coachAnalysis) : null;
+        const typeColor = { positive: "#00e5a0", warning: "#f5c842", critical: "#ff4d6d" };
+        const typeBg    = { positive: "rgba(0,229,160,0.06)", warning: "rgba(245,200,66,0.06)", critical: "rgba(255,77,109,0.06)" };
+        const typeIcon  = { positive: "▲", warning: "!", critical: "✕" };
+
+        return (
+          <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 20px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 6 }}>AI Coach</div>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 24 }}>Two tools: data-driven pattern analysis across all your trades, and per-trade AI review using your screenshots.</div>
+
+            {/* ── SECTION A: Data Analysis ── */}
+            <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 14, padding: 24, marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#e6edf3", letterSpacing: 2, textTransform: "uppercase" }}>Pattern Analysis</div>
+                  <div style={{ fontSize: 10, color: "#4b5563", marginTop: 3 }}>Analyses all {trades.length} logged trades — sessions, patterns, grades, MAE, HTF alignment</div>
+                </div>
+                <button onClick={runDataAnalysis} disabled={coachLoading || trades.length < 5}
+                  style={{ padding: "10px 22px", borderRadius: 9, border: "none", background: coachLoading ? "#2a2f3a" : "linear-gradient(135deg, #f5c842, #ff9a3c)", color: coachLoading ? "#6b7280" : "#070b12", fontWeight: 700, fontSize: 11, cursor: coachLoading || trades.length < 5 ? "not-allowed" : "pointer", fontFamily: "inherit", letterSpacing: 2 }}>
+                  {coachLoading ? "Analysing..." : "Run Analysis"}
+                </button>
+              </div>
+
+              {coachError && <div style={{ fontSize: 11, color: "#ff4d6d", marginBottom: 12 }}>{coachError}</div>}
+              {trades.length < 5 && <div style={{ fontSize: 11, color: "#4b5563" }}>Log at least 5 trades to run analysis.</div>}
+
+              {findings && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {findings.map((f, i) => (
+                    <div key={i} style={{ background: typeBg[f.type], border: `1px solid ${typeColor[f.type]}33`, borderRadius: 10, padding: "14px 16px", display: "flex", gap: 14 }}>
+                      <div style={{ width: 22, height: 22, borderRadius: 5, background: typeColor[f.type] + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                        <span style={{ fontSize: 10, fontWeight: 900, color: typeColor[f.type] }}>{typeIcon[f.type]}</span>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: typeColor[f.type], marginBottom: 4, letterSpacing: 1 }}>{f.title}</div>
+                        <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.7 }}>{f.body}</div>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 9, color: "#2a2f3a", textAlign: "right", marginTop: 4, letterSpacing: 2 }}>{trades.length} TRADES ANALYSED</div>
+                </div>
+              )}
+            </div>
+
+            {/* ── SECTION B: Per-Trade AI Review ── */}
+            <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 14, padding: 24 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#e6edf3", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Per-Trade AI Review</div>
+              <div style={{ fontSize: 10, color: "#4b5563", marginBottom: 16 }}>Select any trade below. Claude will analyse the chart screenshots + trade data and give specific coaching feedback.</div>
+
+              {trades.length === 0 ? (
+                <div style={{ fontSize: 11, color: "#4b5563" }}>No trades logged yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
+                  {[...trades].sort((a,b) => b.entryDatetime > a.entryDatetime ? 1 : -1).slice(0, 30).map(t => (
+                    <div key={t.id} onClick={() => runTradeReview(t)}
+                      style={{ padding: "10px 14px", borderRadius: 9, border: `1px solid ${reviewTrade?.id === t.id ? "#f5c842" : "#1f2937"}`, background: reviewTrade?.id === t.id ? "rgba(245,200,66,0.05)" : "#070b12", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", transition: "all 0.15s" }}>
+                      <span style={{ fontSize: 10, color: "#6b7280", minWidth: 110 }}>{t.entryDatetime ? t.entryDatetime.replace("T", " ") : "--"}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: t.direction === "Long" ? "#00e5a0" : "#ff4d6d" }}>{t.direction}</span>
+                      <span style={{ fontSize: 10, color: "#9ca3af" }}>{t.tradeType || "--"}</span>
+                      <span style={{ fontSize: 10, color: "#6b7280" }}>{t.session || "--"}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: gradeColor(t.grade) }}>{t.grade}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: outcomeColor(t.outcome) }}>{t.outcome}</span>
+                      <span style={{ fontSize: 10, color: parseFloat(t.points) >= 0 ? "#00e5a0" : "#ff4d6d" }}>{t.points ? t.points + "pts" : "--"}</span>
+                      {t.screenshots?.length > 0 && <span style={{ fontSize: 9, color: "#3b82f6", background: "rgba(59,130,246,0.1)", padding: "1px 7px", borderRadius: 10 }}>{t.screenshots.length} chart{t.screenshots.length > 1 ? "s" : ""}</span>}
+                      <span style={{ marginLeft: "auto", fontSize: 9, color: "#4b5563" }}>click to review →</span>
+                    </div>
+                  ))}
+                  {trades.length > 30 && <div style={{ fontSize: 10, color: "#4b5563", textAlign: "center", padding: 8 }}>Showing 30 most recent trades</div>}
+                </div>
+              )}
+
+              {/* Review result */}
+              {reviewLoading && (
+                <div style={{ background: "#070b12", border: "1px solid #1f2937", borderRadius: 10, padding: 24, textAlign: "center" }}>
+                  <div style={{ fontSize: 13, color: "#f5c842", marginBottom: 8 }}>Reviewing trade...</div>
+                  <div style={{ fontSize: 10, color: "#4b5563" }}>Claude is analysing {reviewTrade?.screenshots?.length > 0 ? `${reviewTrade.screenshots.length} screenshot(s) and` : ""} trade data</div>
+                </div>
+              )}
+              {reviewError && <div style={{ fontSize: 11, color: "#ff4d6d", padding: 12 }}>{reviewError}</div>}
+              {reviewResult && reviewTrade && (
+                <div style={{ background: "#070b12", border: "1px solid #f5c84233", borderRadius: 12, padding: 22 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#f5c842", letterSpacing: 2 }}>AI REVIEW</span>
+                    <span style={{ fontSize: 10, color: "#6b7280" }}>{reviewTrade.entryDatetime?.replace("T", " ")}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: reviewTrade.direction === "Long" ? "#00e5a0" : "#ff4d6d" }}>{reviewTrade.direction}</span>
+                    <span style={{ fontSize: 10, color: outcomeColor(reviewTrade.outcome), fontWeight: 700 }}>{reviewTrade.outcome}</span>
+                    {reviewTrade.screenshots?.length > 0 && (
+                      <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+                        {reviewTrade.screenshots.map((ss, i) => (
+                          <img key={i} src={ss.data} alt="chart" onClick={() => setLightboxSrc(ss.data)}
+                            style={{ height: 36, width: 52, objectFit: "cover", borderRadius: 5, border: "1px solid #2a2f3a", cursor: "zoom-in" }} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.9, whiteSpace: "pre-wrap" }}>{reviewResult}</div>
+                </div>
+              )}
+            </div>
           </div>
         );
       })()}
