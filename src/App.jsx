@@ -15,7 +15,7 @@ const toRow = (t) => ({
   session: t.session || null,
   lot_size: t.lotSize || null,
   entry_price: t.entryPrice || null,
-  exit_price: t.exitPrice || null,
+  exit_price: null,
   stop_loss: t.stopLoss || null,
   take_profit: t.takeProfit || null,
   points: t.points || null,
@@ -45,7 +45,6 @@ const fromRow = (r) => ({
   session: r.session || "",
   lotSize: r.lot_size || "",
   entryPrice: r.entry_price || "",
-  exitPrice: r.exit_price || "",
   stopLoss: r.stop_loss || "",
   takeProfit: r.take_profit || "",
   points: r.points || "",
@@ -271,22 +270,40 @@ function formatDate(dt) {
 
 const defaultForm = () => ({
   entryDatetime: "", exitDatetime: "", tradeType: "", direction: "", session: "",
-  lotSize: "", entryPrice: "", exitPrice: "", stopLoss: "", takeProfit: "",
+  lotSize: "", entryPrice: "", stopLoss: "", takeProfit: "",
   points: "", rrr: "", candlePattern: "None", wickDirection: "None",
   news: "None", newsImpact: "Low", htfBias: "", marketStructure: "",
   tradeMode: "Backtest", grade: "Ungraded", executionGrade: "Ungraded",
   outcome: "Win", maePrice: "", mae: "", notes: "", screenshots: [],
 });
 
-function calcPoints(entry, exit, dir) {
-  if (!entry || !exit) return "";
-  return ((dir === "Long" ? exit - entry : entry - exit) * 10).toFixed(1);
+function calcPointsFromOutcome(entry, sl, tp, direction, outcome) {
+  if (!entry || !sl) return "";
+  if (outcome === "Win") {
+    if (!tp) return "";
+    const pts = direction === "Long" ? tp - entry : entry - tp;
+    return (pts * 10).toFixed(1);
+  }
+  if (outcome === "Loss") {
+    const pts = direction === "Long" ? sl - entry : entry - sl;
+    return (pts * 10).toFixed(1); // will be negative
+  }
+  if (outcome === "Breakeven") return "0.0";
+  return "";
 }
-function calcRRR(entry, exit, sl) {
-  if (!entry || !exit || !sl) return "";
+
+function calcRRRFromOutcome(entry, sl, tp, direction, outcome) {
+  if (!entry || !sl || entry === sl) return "";
   const risk = Math.abs(entry - sl);
-  if (!risk) return "";
-  return (Math.abs(exit - entry) / risk).toFixed(2);
+  if (outcome === "Win") {
+    if (!tp) return "";
+    const reward = direction === "Long" ? tp - entry : entry - tp;
+    if (reward <= 0) return "";
+    return (reward / risk).toFixed(2);
+  }
+  if (outcome === "Loss") return "-1.00";
+  if (outcome === "Breakeven") return "0.00";
+  return "";
 }
 function calcConfluence(form) {
   let score = 0;
@@ -439,27 +456,15 @@ export default function GCJournal() {
         next.newsImpact = newsMatch ? newsMatch.impact : "Low";
       }
       const entry = parseFloat(next.entryPrice);
-      const exit  = parseFloat(next.exitPrice);
       const sl    = parseFloat(next.stopLoss);
       const tp    = parseFloat(next.takeProfit);
-      if (!isNaN(entry) && !isNaN(exit)) {
-        next.points = calcPoints(entry, exit, next.direction);
-        if (!isNaN(sl)) next.rrr = calcRRR(entry, exit, sl);
-        // Auto-outcome from exit vs SL/TP
-        if (!isNaN(sl) && !isNaN(tp) && next.direction) {
-          if (next.direction === "Long") {
-            if (exit >= tp) next.outcome = "Win";
-            else if (exit <= sl) next.outcome = "Loss";
-            else if (Math.abs(exit - entry) < 0.1) next.outcome = "Breakeven";
-            else next.outcome = exit > entry ? "Win" : "Loss";
-          } else {
-            if (exit <= tp) next.outcome = "Win";
-            else if (exit >= sl) next.outcome = "Loss";
-            else if (Math.abs(exit - entry) < 0.1) next.outcome = "Breakeven";
-            else next.outcome = exit < entry ? "Win" : "Loss";
-          }
-        }
+
+      // Recalculate points and RRR whenever any of the 4 inputs change
+      if (!isNaN(entry) && !isNaN(sl)) {
+        next.points = calcPointsFromOutcome(entry, sl, isNaN(tp) ? null : tp, next.direction, next.outcome);
+        next.rrr    = calcRRRFromOutcome(entry, sl, isNaN(tp) ? null : tp, next.direction, next.outcome);
       }
+
       // Auto-calculate MAE from maePrice
       const maeP = parseFloat(next.maePrice);
       const entryP = parseFloat(next.entryPrice);
@@ -947,7 +952,6 @@ export default function GCJournal() {
               <div><label style={lbl}>Market Structure</label><select value={form.marketStructure} onChange={e => set("marketStructure", e.target.value)} style={inp}><option value="">Select...</option>{MARKET_STRUCTURES.map(s => <option key={s}>{s}</option>)}</select></div>
               <div><label style={lbl}>Lot Size</label><input type="number" step="0.1" value={form.lotSize} onChange={e => set("lotSize", e.target.value)} placeholder="1.0" style={inp} /></div>
               <div><label style={lbl}>Entry Price</label><input type="number" step="0.1" value={form.entryPrice} onChange={e => set("entryPrice", e.target.value)} placeholder="2350.0" style={inp} /></div>
-              <div><label style={lbl}>Exit Price</label><input type="number" step="0.1" value={form.exitPrice} onChange={e => set("exitPrice", e.target.value)} placeholder="2360.0" style={inp} /></div>
 
               <div>
                 <label style={lbl}>
@@ -1180,7 +1184,7 @@ export default function GCJournal() {
                             <span style={{ fontSize: 10, color: "#6b7280" }}>{t.session || "--"}</span>
                             {t.htfBias && <span style={{ fontSize: 10, color: t.htfBias === "Bullish" ? "#00e5a0" : t.htfBias === "Bearish" ? "#ff4d6d" : "#f5c842" }}>{t.htfBias}</span>}
                             <span style={{ marginLeft: "auto", fontWeight: 700, fontSize: 12, color: parseFloat(t.points) >= 0 ? "#00e5a0" : "#ff4d6d" }}>{t.points ? `${t.points}pts` : "--"}</span>
-                            <span style={{ fontSize: 11, color: "#f5c842" }}>RRR:{t.rrr || "--"}</span>
+                            <span style={{ fontSize: 11, color: parseFloat(t.rrr) >= 2 ? "#00e5a0" : parseFloat(t.rrr) > 0 ? "#f5c842" : "#ff4d6d" }}>RRR:{t.rrr || "--"}</span>
                             <span style={{ padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${gradeColor(t.grade)}22`, color: gradeColor(t.grade) }} title="Setup grade">{t.grade}</span>
                             <span style={{ padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${gradeColor(t.executionGrade || "Ungraded")}15`, color: gradeColor(t.executionGrade || "Ungraded"), border: `1px solid ${gradeColor(t.executionGrade || "Ungraded")}44` }} title="Execution grade">E:{t.executionGrade || "?"}</span>
                             <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: `${outcomeColor(t.outcome)}22`, color: outcomeColor(t.outcome) }}>{t.outcome}</span>
@@ -1190,7 +1194,7 @@ export default function GCJournal() {
                           </div>
                           {expandedId === t.id && (
                             <div style={{ borderTop: "1px solid #1f2937", padding: "14px 16px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(155px, 1fr))", gap: 10 }}>
-                              {[["Entry", formatDatetime(t.entryDatetime)],["Exit", formatDatetime(t.exitDatetime)],["Duration", calcDuration(t.entryDatetime, t.exitDatetime)],["Session", t.session],["HTF Bias", t.htfBias],["Market Structure", t.marketStructure],["Lot Size", t.lotSize],["Entry Price", t.entryPrice],["Exit Price", t.exitPrice],["Stop Loss", t.stopLoss],["Take Profit", t.takeProfit],["MAE", t.mae ? t.mae + " pts" : ""],["Wick", t.wickDirection !== "None" ? t.wickDirection : ""],["News", t.news !== "None" ? t.news : ""],["News Impact", t.news !== "None" ? t.newsImpact : ""],["Setup Grade", t.grade],["Exec Grade", t.executionGrade || "Ungraded"]].map(([k, v]) => v ? (
+                              {[["Entry", formatDatetime(t.entryDatetime)],["Exit", formatDatetime(t.exitDatetime)],["Duration", calcDuration(t.entryDatetime, t.exitDatetime)],["Session", t.session],["HTF Bias", t.htfBias],["Market Structure", t.marketStructure],["Lot Size", t.lotSize],["Entry Price", t.entryPrice],["Stop Loss", t.stopLoss],["Take Profit", t.takeProfit],["MAE", t.mae ? t.mae + " pts" : ""],["Wick", t.wickDirection !== "None" ? t.wickDirection : ""],["News", t.news !== "None" ? t.news : ""],["News Impact", t.news !== "None" ? t.newsImpact : ""],["Setup Grade", t.grade],["Exec Grade", t.executionGrade || "Ungraded"]].map(([k, v]) => v ? (
                                 <div key={k}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>{k}</div><div style={{ fontSize: 12, color: "#e6edf3" }}>{v}</div></div>
                               ) : null)}
                               {t.notes && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Notes</div><div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>{t.notes}</div></div>}
