@@ -32,8 +32,8 @@ const toRow = (t) => ({
   outcome: t.outcome || "Win",
   mae: t.mae || null,
   notes: t.notes || null,
-  screenshot: t.screenshot || null,
-  screenshot_name: t.screenshotName || null,
+  screenshot: t.screenshots ? JSON.stringify(t.screenshots) : null,
+  screenshot_name: t.screenshots ? t.screenshots.map(s => s.name).join("|") : null,
 });
 
 const fromRow = (r) => ({
@@ -62,8 +62,7 @@ const fromRow = (r) => ({
   outcome: r.outcome || "Win",
   mae: r.mae || "",
   notes: r.notes || "",
-  screenshot: r.screenshot || null,
-  screenshotName: r.screenshot_name || "",
+  screenshots: (() => { try { return r.screenshot ? JSON.parse(r.screenshot) : []; } catch(e) { return r.screenshot ? [{ data: r.screenshot, name: r.screenshot_name || "screenshot" }] : []; } })(),
 });
 
 async function dbFetchAll() {
@@ -276,7 +275,7 @@ const defaultForm = () => ({
   points: "", rrr: "", candlePattern: "None", wickDirection: "None",
   news: "None", newsImpact: "Low", htfBias: "", marketStructure: "",
   tradeMode: "Backtest", grade: "Ungraded", executionGrade: "Ungraded",
-  outcome: "Win", maePrice: "", mae: "", notes: "", screenshot: null, screenshotName: "",
+  outcome: "Win", maePrice: "", mae: "", notes: "", screenshots: [],
 });
 
 function calcPoints(entry, exit, dir) {
@@ -477,7 +476,10 @@ export default function GCJournal() {
   const loadImageFile = (file) => {
     if (!file || !file.type.startsWith("image/")) return;
     const reader = new FileReader();
-    reader.onload = (ev) => setForm(f => ({ ...f, screenshot: ev.target.result, screenshotName: file.name }));
+    reader.onload = (ev) => setForm(f => ({
+      ...f,
+      screenshots: [...(f.screenshots || []), { data: ev.target.result, name: file.name }]
+    }));
     reader.readAsDataURL(file);
   };
 
@@ -500,7 +502,10 @@ export default function GCJournal() {
     setTimeout(() => { if (pasteTargetRef.current) pasteTargetRef.current.focus(); }, 50);
   };
 
-  const handleDrop = (e) => { e.preventDefault(); setIsDragging(false); loadImageFile(e.dataTransfer.files[0]); };
+  const handleDrop = (e) => {
+    e.preventDefault(); setIsDragging(false);
+    Array.from(e.dataTransfer.files).forEach(f => loadImageFile(f));
+  };
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = () => setIsDragging(false);
 
@@ -541,8 +546,8 @@ export default function GCJournal() {
   };
 
   const duplicateTrade = (t) => {
-    const { id, screenshot, screenshotName, entryDatetime, exitDatetime, points, rrr, outcome, notes, mae, maePrice, executionGrade, ...rest } = t;
-    setForm({ ...defaultForm(), ...rest, entryDatetime: "", exitDatetime: "", points: "", rrr: "", outcome: "Win", notes: "", mae: "", maePrice: "", executionGrade: "Ungraded" });
+    const { id, screenshots, entryDatetime, exitDatetime, points, rrr, outcome, notes, mae, maePrice, executionGrade, ...rest } = t;
+    setForm({ ...defaultForm(), ...rest, entryDatetime: "", exitDatetime: "", points: "", rrr: "", outcome: "Win", notes: "", mae: "", maePrice: "", executionGrade: "Ungraded", screenshots: [] });
     setEditId(null);
     setSessionOverridden(true);
     setView("journal");
@@ -566,7 +571,7 @@ export default function GCJournal() {
   };
 
   const exportCSV = () => {
-    const headers = Object.keys(defaultForm()).filter(k => k !== "screenshot");
+    const headers = Object.keys(defaultForm()).filter(k => k !== "screenshots");
     const rows = trades.map(t => headers.map(h => JSON.stringify(t[h] ?? "")).join(","));
     const csv = [headers.join(","), ...rows].join("\n");
     const a = document.createElement("a");
@@ -1043,34 +1048,59 @@ export default function GCJournal() {
             </div>
 
             <div style={{ marginTop: 14 }}>
-              <label style={lbl}>Chart Screenshot</label>
-              <input ref={fileRef} type="file" accept="image/*" onChange={e => loadImageFile(e.target.files[0])} style={{ display: "none" }} />
+              <label style={lbl}>Chart Screenshots ({form.screenshots?.length || 0} added)</label>
+              <input ref={fileRef} type="file" accept="image/*" multiple onChange={e => Array.from(e.target.files).forEach(f => loadImageFile(f))} style={{ display: "none" }} />
               <div ref={dropZoneRef} onPaste={handlePaste} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} tabIndex={0}
-                style={{ border: `2px dashed ${isDragging ? "#f5c842" : form.screenshot ? "#00e5a044" : "#2a2f3a"}`, borderRadius: 12, background: isDragging ? "rgba(245,200,66,0.05)" : "#070b12", padding: form.screenshot ? "10px" : "28px 16px", textAlign: "center", transition: "all 0.2s ease", cursor: "pointer", outline: "none" }}
-                onClick={() => !form.screenshot && fileRef.current && fileRef.current.click()}>
-                {form.screenshot ? (
-                  <div>
-                    <img src={form.screenshot} alt="preview" onClick={e => { e.stopPropagation(); setLightboxSrc(form.screenshot); }} style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: "1px solid #2a2f3a", cursor: "zoom-in", display: "block", margin: "0 auto" }} />
-                    <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 10 }}>
-                      <span style={{ fontSize: 10, color: "#6b7280" }}>{form.screenshotName}</span>
-                      <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, screenshot: null, screenshotName: "" })); if (fileRef.current) fileRef.current.value = ""; }} style={{ fontSize: 10, color: "#ff4d6d", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Remove</button>
-                      <button onClick={e => { e.stopPropagation(); fileRef.current && fileRef.current.click(); }} style={{ fontSize: 10, color: "#f5c842", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Replace</button>
-                    </div>
+                style={{ border: `2px dashed ${isDragging ? "#f5c842" : (form.screenshots?.length > 0) ? "#00e5a044" : "#2a2f3a"}`, borderRadius: 12, background: isDragging ? "rgba(245,200,66,0.05)" : "#070b12", padding: "16px", textAlign: "center", transition: "all 0.2s ease", outline: "none" }}>
+
+                {/* Thumbnails grid */}
+                {form.screenshots?.length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
+                    {form.screenshots.map((ss, idx) => (
+                      <div key={idx} style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: "1px solid #2a2f3a" }}>
+                        <img src={ss.data} alt={ss.name} onClick={() => setLightboxSrc(ss.data)}
+                          style={{ width: "100%", height: 120, objectFit: "cover", cursor: "zoom-in", display: "block" }} />
+                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(0,0,0,0.7)", padding: "4px 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: 9, color: "#8b949e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>{ss.name}</span>
+                          <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, screenshots: f.screenshots.filter((_, i) => i !== idx) })); }}
+                            style={{ fontSize: 10, color: "#ff4d6d", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, flexShrink: 0 }}>✕</button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ) : pasteMode ? (
+                )}
+
+                {/* Add more / paste zone */}
+                {pasteMode ? (
                   <div>
                     <div style={{ fontSize: 12, color: "#f5c842", fontWeight: 700, marginBottom: 10 }}>Ready — press Cmd+V or long-press and tap Paste</div>
-                    <div ref={pasteTargetRef} contentEditable suppressContentEditableWarning onPaste={handlePaste} style={{ minHeight: 48, border: "1px dashed #f5c842", borderRadius: 8, padding: "12px", color: "#f5c842", fontSize: 11, outline: "none", background: "rgba(245,200,66,0.04)", textAlign: "center", lineHeight: 2 }}>Tap here then paste</div>
+                    <div ref={pasteTargetRef} contentEditable suppressContentEditableWarning onPaste={handlePaste}
+                      style={{ minHeight: 44, border: "1px dashed #f5c842", borderRadius: 8, padding: "10px 12px", color: "#f5c842", fontSize: 11, outline: "none", background: "rgba(245,200,66,0.04)", textAlign: "center", lineHeight: 2 }}>
+                      Tap here then paste
+                    </div>
                     <button onClick={e => { e.stopPropagation(); setPasteMode(false); }} style={{ marginTop: 8, fontSize: 10, color: "#6b7280", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
                   </div>
                 ) : (
                   <div>
-                    <div style={{ fontSize: 24, marginBottom: 10, opacity: 0.3 }}>[ ]</div>
-                    <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                      <button onClick={e => { e.stopPropagation(); fileRef.current && fileRef.current.click(); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #f5c842", background: "transparent", color: "#f5c842", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Browse / Photos</button>
-                      <button onClick={e => { e.stopPropagation(); activatePasteMode(); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #3b82f6", background: "transparent", color: "#3b82f6", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Paste from Clipboard</button>
+                    <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap", marginBottom: form.screenshots?.length > 0 ? 0 : 10 }}>
+                      <button onClick={e => { e.stopPropagation(); fileRef.current && fileRef.current.click(); }}
+                        style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #f5c842", background: "transparent", color: "#f5c842", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                        {form.screenshots?.length > 0 ? "+ Add More" : "Browse / Photos"}
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); activatePasteMode(); }}
+                        style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #3b82f6", background: "transparent", color: "#3b82f6", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                        Paste from Clipboard
+                      </button>
+                      {form.screenshots?.length > 0 && (
+                        <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, screenshots: [] })); if (fileRef.current) fileRef.current.value = ""; }}
+                          style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #ff4d6d44", background: "transparent", color: "#ff4d6d", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                          Clear All
+                        </button>
+                      )}
                     </div>
-                    <div style={{ fontSize: 10, color: "#4b5563" }}>iPad: screenshot → Share → Copy Photo → Paste from Clipboard</div>
+                    {form.screenshots?.length === 0 && (
+                      <div style={{ fontSize: 10, color: "#4b5563", marginTop: 6 }}>Drag &amp; drop multiple images · iPad: screenshot → Share → Copy Photo → Paste</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1164,7 +1194,7 @@ export default function GCJournal() {
                                 <div key={k}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>{k}</div><div style={{ fontSize: 12, color: "#e6edf3" }}>{v}</div></div>
                               ) : null)}
                               {t.notes && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Notes</div><div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>{t.notes}</div></div>}
-                              {t.screenshot && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Screenshot</div><img src={t.screenshot} alt="chart" onClick={() => setLightboxSrc(t.screenshot)} style={{ maxWidth: "100%", maxHeight: 240, borderRadius: 8, border: "1px solid #2a2f3a", cursor: "zoom-in", display: "block" }} /></div>}
+                              {t.screenshots?.length > 0 && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Screenshots ({t.screenshots.length})</div><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>{t.screenshots.map((ss, idx) => <img key={idx} src={ss.data} alt={ss.name} onClick={() => setLightboxSrc(ss.data)} style={{ width: "100%", height: 110, objectFit: "cover", borderRadius: 8, border: "1px solid #2a2f3a", cursor: "zoom-in", display: "block" }} />)}</div></div>}
                             </div>
                           )}
                         </div>
