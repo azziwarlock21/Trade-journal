@@ -89,7 +89,7 @@ async function dbDeleteAll() {
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────
-const CANDLE_PATTERNS = ["Engulfing Bull","Engulfing Bear","Hammer","Doji","Pin Bar"];
+const CANDLE_PATTERNS = ["None","Engulfing Bull","Engulfing Bear","Hammer","Doji","Pin Bar","Other"];
 const NEWS_EVENTS = ["None","CPI","NFP","FOMC","PPI","GDP","ISM","Retail Sales","Unemployment Claims","Jerome Powell Speech","Other"];
 const SESSIONS = ["London","New York","Asia","London/NY Overlap","Pre-Market","After Hours"];
 const DIRECTIONS = ["Long","Short"];
@@ -273,7 +273,7 @@ function formatDate(dt) {
 const defaultForm = () => ({
   entryDatetime: "", exitDatetime: "", tradeType: "", direction: "", session: "",
   lotSize: "", entryPrice: "", exitPrice: "", stopLoss: "", takeProfit: "",
-  points: "", rrr: "", candlePattern: "", wickDirection: "None",
+  points: "", rrr: "", candlePattern: "None", wickDirection: "None",
   news: "None", newsImpact: "Low", htfBias: "", marketStructure: "",
   tradeMode: "Backtest", grade: "Ungraded", executionGrade: "Ungraded",
   outcome: "Win", maePrice: "", mae: "", notes: "", screenshot: null, screenshotName: "",
@@ -294,7 +294,7 @@ function calcConfluence(form) {
   if (form.htfBias && form.htfBias !== "Ranging" && form.htfBias !== "Uncertain") score++;
   const h = form.entryDatetime ? parseInt(form.entryDatetime.split("T")[1], 10) : -1;
   if ((h >= 3 && h < 5) || (h >= 9 && h < 11)) score++; // kill zones
-  if (form.candlePattern && form.candlePattern !== "") score++;
+  if (form.candlePattern && form.candlePattern !== "" && form.candlePattern !== "None") score++;
   if (form.stopLoss && form.entryPrice && Math.abs(parseFloat(form.entryPrice) - parseFloat(form.stopLoss)) > 0) score++;
   if (parseFloat(form.rrr) >= 2) score++;
   if (form.news === "None" || form.newsImpact === "Low") score++;
@@ -975,7 +975,7 @@ export default function GCJournal() {
                   Candle Pattern
                   <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316", fontWeight: 700 }} title="Confluence: signal candle present">◆</span>
                 </label>
-                <select value={form.candlePattern} onChange={e => set("candlePattern", e.target.value)} style={inp}><option value="">Select...</option>{CANDLE_PATTERNS.map(s => <option key={s}>{s}</option>)}</select>
+                <select value={form.candlePattern} onChange={e => set("candlePattern", e.target.value)} style={inp}>{CANDLE_PATTERNS.map(s => <option key={s}>{s}</option>)}</select>
               </div>
 
               <div><label style={lbl}>Wick Direction</label><select value={form.wickDirection} onChange={e => set("wickDirection", e.target.value)} style={inp}>{["None","Upper","Lower","Both"].map(s => <option key={s}>{s}</option>)}</select></div>
