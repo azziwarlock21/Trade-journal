@@ -747,7 +747,7 @@ export default function GCJournal() {
       rules: [
         { id: "r7",  text: "Maximum 1% of account risked per trade — no exceptions" },
         { id: "r8",  text: "Maximum 2 trades open simultaneously" },
-        { id: "r9",  text: "3 consecutive losses in a day = stop trading for the remainder of that day — no revenge trading" },
+        { id: "r9",  text: "3 consecutive losses = stop trading for the remainder of the week — no revenge trading, no exceptions" },
         { id: "r10", text: "Down 3% on the week = stop trading until Monday — protect capital above all else" },
         { id: "r11", text: "Never move your stop loss further away once a trade is live — you may move it to breakeven or tighter, never wider" },
         { id: "r12", text: "Never add to a losing position" },
@@ -864,7 +864,7 @@ export default function GCJournal() {
           <span style={{ fontSize: 11, color: "#6b7280" }}>Worst loss streak: <span style={{ color: "#ff4d6d" }}>{streaks.maxLoss}L</span></span>
           {streaks.curLoss >= 2 && (
             <span style={{ fontSize: 10, fontWeight: 700, color: "#ff4d6d", background: "rgba(255,77,109,0.1)", padding: "2px 10px", borderRadius: 20, border: "1px solid #ff4d6d44" }}>
-              {streaks.curLoss >= 3 ? "⚠ STOP DAY — 3 losses reached" : "⚠ Warning: 2 losses — 1 more = stop day"}
+              {streaks.curLoss >= 3 ? "⚠ STOP WEEK — 3 consecutive losses reached" : "⚠ Warning: 2 losses — 1 more = stop for the week"}
             </span>
           )}
           <span style={{ marginLeft: "auto", fontSize: 9, color: "#4b5563" }}>Press N for new trade</span>
@@ -1695,7 +1695,7 @@ export default function GCJournal() {
           else if (avgRRRWins && parseFloat(avgRRRWins) >= 2.3) findings.push({ type: "positive", title: "Strong RRR on winners", body: `Average RRR on winning trades is ${avgRRRWins} — above the 2.0 minimum. Your targets are being respected and you are not cutting winners short.` });
 
           // Loss streak
-          if (maxLossStreak >= 3) findings.push({ type: "warning", title: `Max loss streak: ${maxLossStreak}`, body: `You have had a run of ${maxLossStreak} consecutive losses. Review whether these losses happened on valid setups or rule breaks. If valid, this is normal variance. If rule breaks, identify the trigger — time of day, session, news proximity — and add a specific guard for it.` });
+          if (maxLossStreak >= 3) findings.push({ type: "warning", title: `Max loss streak: ${maxLossStreak}`, body: `You have had a run of ${maxLossStreak} consecutive losses. Per your rules, 3 consecutive losses means stop trading for the rest of the week. Review whether these losses happened on valid setups or rule breaks — if rule breaks, identify the common trigger and add a specific guard for it.` });
 
           setCoachAnalysis(JSON.stringify(findings));
           setCoachLoading(false);
