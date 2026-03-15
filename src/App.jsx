@@ -705,10 +705,8 @@ export default function GCJournal() {
     let cum = 0;
     const equity = sorted.map(t => { cum += parseFloat(t.points) || 0; return { pts: parseFloat(cum.toFixed(1)), outcome: t.outcome }; });
 
-    // Gain % — assumes 1% risk per point (1 point = 1R = 1% account)
-    // Using points directly: total gain % = totalPoints * 1% per point / 10
-    // GC: 1 point = $100, so points / 10 = % of account at 1% risk per trade
-    const gainPct = (parseFloat(totalPoints) / 10).toFixed(1);
+    // Gain % — 1% risk per trade, 2% gain per win, 1% loss per loss
+    const gainPct = (wins.length * 2 - losses.length * 1).toFixed(1);
 
     // Monthly breakdown
     const byMonth = {};
@@ -724,7 +722,7 @@ export default function GCJournal() {
       mo, ...d,
       total: d.wins + d.losses,
       wr: d.wins + d.losses ? ((d.wins / (d.wins + d.losses)) * 100).toFixed(0) : 0,
-      gainPct: (d.points / 10).toFixed(1),
+      gainPct: (d.wins * 2 - d.losses * 1).toFixed(1),
       points: d.points.toFixed(1),
     }));
     const setupVsExec = { AA: 0, AB: 0, BA: 0, BB: 0, other: 0 };
@@ -1315,7 +1313,7 @@ export default function GCJournal() {
                 <div key={label} style={{ background: "#0d1117", border: label === "Overall Gain" ? `1px solid ${parseFloat(stats.gainPct) >= 0 ? "#00e5a044" : "#ff4d6d44"}` : "1px solid #1f2937", borderRadius: 12, padding: "16px 18px" }}>
                   <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
                   <div style={{ fontSize: label.includes("Streak") ? 14 : 22, fontWeight: 700, color }}>{val}</div>
-                  {label === "Overall Gain" && <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>at 1% risk/trade</div>}
+                  {label === "Overall Gain" && <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>+2% per win · −1% per loss</div>}
                 </div>
               ))}
             </div>
