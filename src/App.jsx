@@ -431,7 +431,160 @@ export default function GCJournal() {
   const [lightboxSrc, setLightboxSrc]     = useState(null);
   const [analyticsMode, setAnalyticsMode] = useState("All");
   const [analyticsMonth, setAnalyticsMonth] = useState("All");
-  const [checkedRules, setCheckedRules]   = useState({});
+  // ── AI Coach — Data Analysis ───────────────────────────────────────────
+  const runDataAnalysis = useCallback(() => {
+    if (trades.length < 5) { setCoachError("Log at least 5 trades before running analysis."); return; }
+    setCoachLoading(true); setCoachError(""); setCoachAnalysis("");
+
+    const src = trades;
+    const wins   = src.filter(t => t.outcome === "Win");
+    const losses = src.filter(t => t.outcome === "Loss");
+    const wr     = wins.length / src.length;
+
+    const bySess = {};
+    src.forEach(t => { if (!t.session) return; if (!bySess[t.session]) bySess[t.session] = { w: 0, l: 0 }; t.outcome === "Win" ? bySess[t.session].w++ : bySess[t.session].l++; });
+    const sessRanked = Object.entries(bySess).map(([s, d]) => ({ s, wr: d.w / (d.w + d.l), total: d.w + d.l })).sort((a, b) => b.wr - a.wr);
+
+    const byCandle = {};
+    src.forEach(t => { if (!t.candlePattern || t.candlePattern === "None") return; if (!byCandle[t.candlePattern]) byCandle[t.candlePattern] = { w: 0, l: 0 }; t.outcome === "Win" ? byCandle[t.candlePattern].w++ : byCandle[t.candlePattern].l++; });
+    const candleRanked = Object.entries(byCandle).map(([c, d]) => ({ c, wr: d.w / (d.w + d.l), total: d.w + d.l })).sort((a, b) => b.wr - a.wr);
+
+    const aSetupPoorExec = src.filter(t => t.grade === "A" && t.executionGrade && t.executionGrade !== "A" && t.executionGrade !== "Ungraded").length;
+    const aSetupAExec    = src.filter(t => t.grade === "A" && t.executionGrade === "A").length;
+
+    const tradesWithMAE = src.filter(t => t.mae);
+    const winnerMAE     = tradesWithMAE.filter(t => t.outcome === "Win");
+    const avgWinMAE     = winnerMAE.length ? (winnerMAE.reduce((a, t) => a + parseFloat(t.mae), 0) / winnerMAE.length).toFixed(1) : null;
+
+    const byGrade = {};
+    src.forEach(t => { if (!byGrade[t.grade]) byGrade[t.grade] = { w: 0, total: 0 }; byGrade[t.grade].total++; if (t.outcome === "Win") byGrade[t.grade].w++; });
+
+    const aligned    = src.filter(t => (t.direction === "Long" && t.htfBias === "Bullish") || (t.direction === "Short" && t.htfBias === "Bearish"));
+    const misaligned = src.filter(t => (t.direction === "Long" && t.htfBias === "Bearish")  || (t.direction === "Short" && t.htfBias === "Bullish"));
+    const alignedWR    = aligned.length    ? (aligned.filter(t    => t.outcome === "Win").length / aligned.length    * 100).toFixed(0) : null;
+    const misalignedWR = misaligned.length ? (misaligned.filter(t => t.outcome === "Win").length / misaligned.length * 100).toFixed(0) : null;
+
+    const avgRRRWins = wins.length ? (wins.reduce((a, t) => a + (parseFloat(t.rrr) || 0), 0) / wins.length).toFixed(2) : null;
+
+    let maxLossStreak = 0, curLS = 0;
+    [...src].sort((a, b) => a.entryDatetime < b.entryDatetime ? -1 : 1).forEach(t => {
+      if (t.outcome === "Loss") { curLS++; maxLossStreak = Math.max(maxLossStreak, curLS); } else curLS = 0;
+    });
+
+    const findings = [];
+
+    if (wr >= 0.6) findings.push({ type: "positive", title: "Strong win rate", body: `Your win rate is ${(wr*100).toFixed(1)}% across ${src.length} trades — above the 60% threshold for a statistically significant edge. Keep protecting it.` });
+    else if (wr >= 0.45) findings.push({ type: "warning", title: "Win rate needs improvement", body: `Win rate is ${(wr*100).toFixed(1)}%. You need 55%+ to grow consistently at 2.0 RRR. Focus on skipping C-grade setups and only trading in your best sessions.` });
+    else findings.push({ type: "critical", title: "Win rate is below breakeven", body: `Win rate is ${(wr*100).toFixed(1)}%. You are losing money at this level. Return to backtesting and do not go live until this is above 50% over 50+ trades.` });
+
+    if (sessRanked.length >= 2) {
+      const best = sessRanked[0], worst = sessRanked[sessRanked.length - 1];
+      if (best.total >= 3) findings.push({ type: "positive", title: `Best session: ${best.s}`, body: `${(best.wr*100).toFixed(0)}% win rate in ${best.s} (${best.total} trades). This is your strongest window — prioritise entries here.` });
+      if (worst.total >= 3 && worst.wr < 0.4) findings.push({ type: "critical", title: `Avoid: ${worst.s}`, body: `Only ${(worst.wr*100).toFixed(0)}% win rate in ${worst.s} across ${worst.total} trades. This session is costing you money — consider eliminating it entirely.` });
+    }
+
+    if (candleRanked.length >= 2) {
+      const best = candleRanked[0], worst = candleRanked[candleRanked.length - 1];
+      if (best.total >= 3) findings.push({ type: "positive", title: `Best pattern: ${best.c}`, body: `${best.c} wins ${(best.wr*100).toFixed(0)}% of the time over ${best.total} trades. Weight your entries toward this signal.` });
+      if (worst.total >= 3 && worst.wr < 0.4) findings.push({ type: "warning", title: `Weak pattern: ${worst.c}`, body: `${worst.c} only wins ${(worst.wr*100).toFixed(0)}% across ${worst.total} trades. Refine how you identify it or stop trading it.` });
+    }
+
+    if (aSetupPoorExec > 0) {
+      const pct = ((aSetupPoorExec / (aSetupPoorExec + aSetupAExec || 1)) * 100).toFixed(0);
+      findings.push({ type: "warning", title: "Execution gap on A setups", body: `${pct}% of your A-grade setups had poor execution. You are identifying good trades but not managing them cleanly — common causes are chasing entry, moving SL, or exiting early.` });
+    }
+
+    if (alignedWR && misalignedWR && misaligned.length >= 3) {
+      findings.push({ type: parseInt(misalignedWR) < 40 ? "critical" : "warning", title: "Counter-trend trades underperforming", body: `With-trend trades win ${alignedWR}%. Counter-trend trades win only ${misalignedWR}% across ${misaligned.length} trades. ${parseInt(misalignedWR) < 40 ? "Stop trading against the HTF trend entirely." : "Reduce counter-trend frequency and require higher confluence for those entries."}` });
+    }
+
+    if (avgWinMAE) {
+      if (parseFloat(avgWinMAE) > 8) findings.push({ type: "warning", title: "High heat on winning trades", body: `Average MAE on winners is ${avgWinMAE} points. Your entries are slightly early — price moves against you before recovering. Wait for stronger confirmation before entering.` });
+      else if (parseFloat(avgWinMAE) <= 4) findings.push({ type: "positive", title: "Tight entry precision", body: `Average MAE on winners is only ${avgWinMAE} points — price moves in your direction almost immediately. Your timing and triggers are working.` });
+    }
+
+    const aGrade = byGrade["A"], cGrade = byGrade["C"];
+    if (aGrade && cGrade && aGrade.total >= 3 && cGrade.total >= 3) {
+      const aWR = (aGrade.w / aGrade.total * 100).toFixed(0);
+      const cWR = (cGrade.w / cGrade.total * 100).toFixed(0);
+      if (parseInt(aWR) > parseInt(cWR) + 15) findings.push({ type: "positive", title: "Grading is calibrated", body: `A-grade setups win ${aWR}% vs C-grade at ${cWR}%. Your pre-trade grading accurately identifies quality — keep skipping C setups.` });
+      else if (parseInt(aWR) <= parseInt(cWR)) findings.push({ type: "warning", title: "Grading is not predictive yet", body: `A-grade wins ${aWR}% vs C-grade at ${cWR}%. Your grading isn't differentiating quality — tighten the criteria for what qualifies as an A setup.` });
+    }
+
+    if (avgRRRWins) {
+      if (parseFloat(avgRRRWins) < 1.8) findings.push({ type: "critical", title: "RRR on wins is too low", body: `Average RRR on winning trades is ${avgRRRWins}. You need at least 2.0 to grow at your target win rate. You may be exiting winners early — let price reach TP.` });
+      else if (parseFloat(avgRRRWins) >= 2.3) findings.push({ type: "positive", title: "Strong RRR on winners", body: `Average RRR on wins is ${avgRRRWins} — above the 2.0 minimum. You are not cutting winners short.` });
+    }
+
+    if (maxLossStreak >= 3) findings.push({ type: "warning", title: `Max loss streak: ${maxLossStreak}`, body: `You have had ${maxLossStreak} consecutive losses. Per your rules, 3 in a row means stop for the rest of the week. Review whether these were valid setups or rule breaks.` });
+
+    setCoachAnalysis(JSON.stringify(findings));
+    setCoachLoading(false);
+  }, [trades]);
+
+  // ── AI Coach — Per-Trade Review ────────────────────────────────────────
+  const runTradeReview = useCallback(async (trade) => {
+    setReviewTrade(trade);
+    setReviewResult(""); setReviewError(""); setReviewLoading(true);
+
+    // Lazy-load screenshots if not yet fetched
+    let fullTrade = trade;
+    if (!trade.screenshotsLoaded) {
+      try {
+        const shots = await dbFetchScreenshots(trade.id);
+        fullTrade = { ...trade, screenshots: shots, screenshotsLoaded: true };
+        setTrades(ts => ts.map(t => t.id === trade.id ? fullTrade : t));
+        setReviewTrade(fullTrade);
+      } catch(e) { /* proceed without screenshots */ }
+    }
+
+    try {
+      const tradeContext = [
+        `Direction: ${fullTrade.direction || "—"}`,
+        `Trade Type: ${fullTrade.tradeType || "—"}`,
+        `HTF Bias: ${fullTrade.htfBias || "—"}`,
+        `Market Structure: ${fullTrade.marketStructure || "—"}`,
+        `Session: ${fullTrade.session || "—"}`,
+        `Candle Pattern: ${fullTrade.candlePattern || "—"}`,
+        `Wick Direction: ${fullTrade.wickDirection || "—"}`,
+        `Entry: ${fullTrade.entryPrice || "—"} | SL: ${fullTrade.stopLoss || "—"} | TP: ${fullTrade.takeProfit || "—"}`,
+        `Points: ${fullTrade.points || "—"} | RRR: ${fullTrade.rrr || "—"} | MAE: ${fullTrade.mae || "not logged"}`,
+        `News: ${fullTrade.news || "None"} (${fullTrade.newsImpact || "Low"})`,
+        `Outcome: ${fullTrade.outcome} | Setup Grade: ${fullTrade.grade} | Exec Grade: ${fullTrade.executionGrade || "—"}`,
+        `Notes: ${fullTrade.notes || "none"}`,
+      ].join("\n");
+
+      const hasScreenshots = fullTrade.screenshots && fullTrade.screenshots.length > 0;
+
+      const prompt = hasScreenshots
+        ? `You are a GC (gold futures) trading coach reviewing a student's trade. Analyse the chart screenshot(s) and trade data below. Be direct, specific, and reference actual chart structure and prices where visible.\n\nTrade data:\n${tradeContext}\n\nRespond in exactly these 6 sections with no preamble:\n1. Setup Quality\n2. Entry Timing\n3. Risk Management\n4. What Was Done Well\n5. What To Improve\n6. Overall Verdict (one sentence)`
+        : `You are a GC (gold futures) trading coach reviewing a student's trade. No chart screenshot provided — analyse data only. Be direct and specific.\n\nTrade data:\n${tradeContext}\n\nRespond in exactly these 5 sections:\n1. Setup Quality\n2. Risk Management\n3. What Was Done Well\n4. What To Improve\n5. Overall Verdict (one sentence)`;
+
+      const messages = hasScreenshots ? [{
+        role: "user",
+        content: [
+          ...fullTrade.screenshots.map(ss => ({
+            type: "image",
+            source: { type: "base64", media_type: "image/jpeg", data: ss.data.includes(",") ? ss.data.split(",")[1] : ss.data }
+          })),
+          { type: "text", text: prompt }
+        ]
+      }] : [{ role: "user", content: prompt }];
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      setReviewResult(data.content.map(b => b.text || "").join("\n").trim());
+    } catch(e) {
+      setReviewError("Review failed: " + e.message);
+    } finally {
+      setReviewLoading(false);
+    }
+  }, []);
   const [isDragging, setIsDragging]       = useState(false);
   const [pasteMode, setPasteMode]         = useState(false);
 
@@ -1756,178 +1909,6 @@ export default function GCJournal() {
       {/* ═══ AI COACH ═══ */}
       {!loading && view === "coach" && (() => {
 
-        // ── Data analysis (no API) ─────────────────────────────────────
-        const runDataAnalysis = () => {
-          if (trades.length < 5) { setCoachError("Log at least 5 trades before running analysis."); return; }
-          setCoachLoading(true); setCoachError(""); setCoachAnalysis("");
-
-          const src = trades;
-          const wins = src.filter(t => t.outcome === "Win");
-          const losses = src.filter(t => t.outcome === "Loss");
-          const wr = wins.length / src.length;
-
-          // Best/worst sessions
-          const bySess = {};
-          src.forEach(t => { if (!t.session) return; if (!bySess[t.session]) bySess[t.session] = { w: 0, l: 0 }; t.outcome === "Win" ? bySess[t.session].w++ : bySess[t.session].l++; });
-          const sessRanked = Object.entries(bySess).map(([s, d]) => ({ s, wr: d.w / (d.w + d.l), total: d.w + d.l })).sort((a, b) => b.wr - a.wr);
-
-          // Best/worst candle patterns
-          const byCandle = {};
-          src.forEach(t => { if (!t.candlePattern || t.candlePattern === "None") return; if (!byCandle[t.candlePattern]) byCandle[t.candlePattern] = { w: 0, l: 0 }; t.outcome === "Win" ? byCandle[t.candlePattern].w++ : byCandle[t.candlePattern].l++; });
-          const candleRanked = Object.entries(byCandle).map(([c, d]) => ({ c, wr: d.w / (d.w + d.l), total: d.w + d.l })).sort((a, b) => b.wr - a.wr);
-
-          // Setup vs execution gap
-          const aSetupPoorExec = src.filter(t => t.grade === "A" && t.executionGrade && t.executionGrade !== "A" && t.executionGrade !== "Ungraded").length;
-          const aSetupAExec = src.filter(t => t.grade === "A" && t.executionGrade === "A").length;
-
-          // MAE vs SL analysis
-          const tradesWithMAE = src.filter(t => t.mae && t.stopLoss && t.entryPrice);
-          const avgMAE = tradesWithMAE.length ? (tradesWithMAE.reduce((a, t) => a + parseFloat(t.mae), 0) / tradesWithMAE.length).toFixed(1) : null;
-          const winnerMAE = tradesWithMAE.filter(t => t.outcome === "Win");
-          const avgWinMAE = winnerMAE.length ? (winnerMAE.reduce((a, t) => a + parseFloat(t.mae), 0) / winnerMAE.length).toFixed(1) : null;
-
-          // Grade performance
-          const byGrade = {};
-          src.forEach(t => { if (!byGrade[t.grade]) byGrade[t.grade] = { w: 0, total: 0 }; byGrade[t.grade].total++; if (t.outcome === "Win") byGrade[t.grade].w++; });
-
-          // HTF bias alignment
-          const aligned = src.filter(t => (t.direction === "Long" && t.htfBias === "Bullish") || (t.direction === "Short" && t.htfBias === "Bearish"));
-          const misaligned = src.filter(t => (t.direction === "Long" && t.htfBias === "Bearish") || (t.direction === "Short" && t.htfBias === "Bullish"));
-          const alignedWR = aligned.length ? (aligned.filter(t => t.outcome === "Win").length / aligned.length * 100).toFixed(0) : null;
-          const misalignedWR = misaligned.length ? (misaligned.filter(t => t.outcome === "Win").length / misaligned.length * 100).toFixed(0) : null;
-
-          // RRR on wins (losses correctly excluded — loss RRR is always -1.00)
-          const avgRRRWins = wins.length ? (wins.reduce((a, t) => a + (parseFloat(t.rrr) || 0), 0) / wins.length).toFixed(2) : null;
-
-          // Loss streaks
-          let maxLossStreak = 0, cur = 0;
-          [...src].sort((a,b) => a.entryDatetime < b.entryDatetime ? -1 : 1).forEach(t => { if (t.outcome === "Loss") { cur++; maxLossStreak = Math.max(maxLossStreak, cur); } else cur = 0; });
-
-          // Build findings
-          const findings = [];
-
-          // Win rate verdict
-          if (wr >= 0.6) findings.push({ type: "positive", title: "Strong win rate", body: `Your win rate is ${(wr*100).toFixed(1)}% across ${src.length} trades. This is above the 60% threshold that makes your edge statistically significant. Keep protecting it.` });
-          else if (wr >= 0.45) findings.push({ type: "warning", title: "Win rate needs improvement", body: `Your win rate is ${(wr*100).toFixed(1)}%. With a 2.5 RRR target you need at least 45% to break even, but 55%+ to grow consistently. Focus on skipping C-grade setups.` });
-          else findings.push({ type: "critical", title: "Win rate is below breakeven", body: `Your win rate is ${(wr*100).toFixed(1)}%. At this level you are losing money even with good RRR. Return to backtesting and do not trade live until this is above 50% over 50+ trades.` });
-
-          // Session insight
-          if (sessRanked.length >= 2) {
-            const best = sessRanked[0], worst = sessRanked[sessRanked.length - 1];
-            if (best.total >= 3) findings.push({ type: "positive", title: `Best session: ${best.s}`, body: `You win ${(best.wr*100).toFixed(0)}% of trades in the ${best.s} session (${best.total} trades). This is your strongest window — prioritise entries here.` });
-            if (worst.total >= 3 && worst.wr < 0.4) findings.push({ type: "critical", title: `Avoid: ${worst.s} session`, body: `Your win rate in ${worst.s} is only ${(worst.wr*100).toFixed(0)}% across ${worst.total} trades. This session is costing you money. Consider eliminating it entirely until you have more data.` });
-          }
-
-          // Candle pattern insight
-          if (candleRanked.length >= 2) {
-            const best = candleRanked[0], worst = candleRanked[candleRanked.length - 1];
-            if (best.total >= 3) findings.push({ type: "positive", title: `Best pattern: ${best.c}`, body: `${best.c} has a ${(best.wr*100).toFixed(0)}% win rate over ${best.total} trades. This is your highest-probability signal — weight your entries toward this pattern.` });
-            if (worst.total >= 3 && worst.wr < 0.4) findings.push({ type: "warning", title: `Weak pattern: ${worst.c}`, body: `${worst.c} is only winning ${(worst.wr*100).toFixed(0)}% of the time across ${worst.total} trades. Either refine how you identify this pattern or stop trading it until your sample is larger.` });
-          }
-
-          // Setup vs execution gap
-          if (aSetupPoorExec > 0) {
-            const pct = ((aSetupPoorExec / (aSetupPoorExec + aSetupAExec)) * 100).toFixed(0);
-            findings.push({ type: "warning", title: "Execution gap on A setups", body: `${pct}% of your A-grade setups were executed poorly (B or C execution grade). You are identifying good trades but not entering/managing them cleanly. Review these trades specifically — common causes are chasing entry, moving SL, or exiting early.` });
-          }
-
-          // HTF alignment
-          if (alignedWR && misalignedWR && misaligned.length >= 3) {
-            findings.push({ type: misalignedWR < 40 ? "critical" : "warning", title: "Counter-trend trades underperforming", body: `Trades aligned with HTF bias win ${alignedWR}% of the time. Counter-trend trades (direction vs HTF bias) win only ${misalignedWR}% across ${misaligned.length} trades. ${parseInt(misalignedWR) < 40 ? "Stop trading against the HTF trend entirely." : "Reduce counter-trend frequency and require higher confluence for those entries."}` });
-          }
-
-          // MAE insight
-          if (avgWinMAE && avgWinMAE > 8) findings.push({ type: "warning", title: "High heat on winning trades", body: `Your winners experience an average of ${avgWinMAE} points of adverse movement before recovering. This suggests your entries are slightly early or your stop is absorbing unnecessary heat. Consider waiting for a second confirmation before entering.` });
-          else if (avgWinMAE && avgWinMAE <= 4) findings.push({ type: "positive", title: "Tight entry precision", body: `Average MAE on winning trades is only ${avgWinMAE} points — price moves in your direction almost immediately after entry. Your timing and entry triggers are working well.` });
-
-          // Grade insight
-          const aGrade = byGrade["A"];
-          const cGrade = byGrade["C"];
-          if (aGrade && cGrade && aGrade.total >= 3 && cGrade.total >= 3) {
-            const aWR = (aGrade.w / aGrade.total * 100).toFixed(0);
-            const cWR = (cGrade.w / cGrade.total * 100).toFixed(0);
-            if (parseInt(aWR) > parseInt(cWR) + 15) findings.push({ type: "positive", title: "Grading system is calibrated", body: `A-grade setups win ${aWR}% vs C-grade at ${cWR}%. Your pre-trade grading is accurately identifying quality — keep skipping C setups if your rule says to.` });
-            else if (parseInt(aWR) <= parseInt(cWR)) findings.push({ type: "warning", title: "Grading is not predictive yet", body: `A-grade setups win ${aWR}% vs C-grade at ${cWR}%. Your grading isn't differentiating quality yet — review what you're using to assign A vs C and tighten the criteria.` });
-          }
-
-          // RRR on wins
-          if (avgRRRWins && parseFloat(avgRRRWins) < 1.8) findings.push({ type: "critical", title: "RRR on wins is too low", body: `Your average RRR on winning trades is ${avgRRRWins}. With a 60% win rate target you need at least 2.0 to grow consistently. You may be exiting winners too early — let price reach TP rather than taking partials.` });
-          else if (avgRRRWins && parseFloat(avgRRRWins) >= 2.3) findings.push({ type: "positive", title: "Strong RRR on winners", body: `Average RRR on winning trades is ${avgRRRWins} — above the 2.0 minimum. Your targets are being respected and you are not cutting winners short.` });
-
-          // Loss streak
-          if (maxLossStreak >= 3) findings.push({ type: "warning", title: `Max loss streak: ${maxLossStreak}`, body: `You have had a run of ${maxLossStreak} consecutive losses. Per your rules, 3 consecutive losses means stop trading for the rest of the week. Review whether these losses happened on valid setups or rule breaks — if rule breaks, identify the common trigger and add a specific guard for it.` });
-
-          setCoachAnalysis(JSON.stringify(findings));
-          setCoachLoading(false);
-        };
-
-        // ── AI trade review (API) ──────────────────────────────────────
-        const runTradeReview = async (trade) => {
-          setReviewTrade(trade);
-          setReviewResult(""); setReviewError(""); setReviewLoading(true);
-
-          // Lazy-load screenshots if not yet fetched
-          let fullTrade = trade;
-          if (!trade.screenshotsLoaded) {
-            try {
-              const shots = await dbFetchScreenshots(trade.id);
-              fullTrade = { ...trade, screenshots: shots, screenshotsLoaded: true };
-              setTrades(ts => ts.map(t => t.id === trade.id ? fullTrade : t));
-              setReviewTrade(fullTrade);
-            } catch(e) { /* proceed without screenshots */ }
-          }
-          try {
-            const tradeContext = `
-Trade details:
-- Date/Time: ${trade.entryDatetime || "unknown"}
-- Direction: ${trade.direction}
-- Trade Type: ${trade.tradeType}
-- HTF Bias: ${trade.htfBias}
-- Market Structure: ${trade.marketStructure}
-- Session: ${trade.session}
-- Candle Pattern: ${trade.candlePattern}
-- Wick Direction: ${trade.wickDirection}
-- Entry Price: ${trade.entryPrice}
-- Stop Loss: ${trade.stopLoss}
-- Take Profit: ${trade.takeProfit}
-- Points: ${trade.points}
-- RRR: ${trade.rrr}
-- MAE Points: ${trade.mae || "not logged"}
-- News: ${trade.news} (${trade.newsImpact} impact)
-- Outcome: ${trade.outcome}
-- Setup Grade: ${trade.grade}
-- Execution Grade: ${trade.executionGrade || "ungraded"}
-- Notes: ${trade.notes || "none"}
-            `.trim();
-
-            const hasScreenshots = fullTrade.screenshots && trade.screenshots.length > 0;
-
-            const messages = hasScreenshots ? [{
-              role: "user",
-              content: [
-                ...fullTrade.screenshots.map(ss => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: ss.data.split(",")[1] } })),
-                { type: "text", text: `You are an expert GC gold futures trading coach reviewing a trade from a student's journal. Analyse the trade data and chart screenshot(s) provided. Give specific, honest, actionable feedback.\n\n${tradeContext}\n\nProvide feedback in these sections:\n1. Setup Quality — was this a valid setup based on the data and chart?\n2. Entry Timing — was the entry well-timed or could it have been better?\n3. Risk Management — SL placement, RRR, MAE assessment\n4. What Was Done Well — at least one positive\n5. What To Improve — specific and actionable, not generic\n6. Overall Verdict — one sentence summary\n\nBe direct and specific. Reference the actual prices and chart structure visible. Do not be vague.` }
-              ]
-            }] : [{
-              role: "user",
-              content: `You are an expert GC gold futures trading coach reviewing a trade from a student's journal. No chart screenshot was provided so analyse the data only.\n\n${tradeContext}\n\nProvide feedback in these sections:\n1. Setup Quality — assess based on the data provided\n2. Risk Management — SL/TP placement and RRR\n3. What Was Done Well\n4. What To Improve — specific and actionable\n5. Overall Verdict — one sentence\n\nBe direct and honest.`
-            }];
-
-            const res = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages })
-            });
-            const data = await res.json();
-            if (data.error) throw new Error(data.error.message);
-            const text = data.content.map(b => b.text || "").join("\n").trim();
-            setReviewResult(text);
-          } catch(e) {
-            setReviewError("Review failed: " + e.message);
-          } finally {
-            setReviewLoading(false);
-          }
-        };
 
         const findings = coachAnalysis ? JSON.parse(coachAnalysis) : null;
         const typeColor = { positive: "#00e5a0", warning: "#f5c842", critical: "#ff4d6d" };
@@ -1992,7 +1973,7 @@ Trade details:
                       <span style={{ fontSize: 10, fontWeight: 700, color: gradeColor(t.grade) }}>{t.grade}</span>
                       <span style={{ fontSize: 10, fontWeight: 700, color: outcomeColor(t.outcome) }}>{t.outcome}</span>
                       <span style={{ fontSize: 10, color: parseFloat(t.points) >= 0 ? "#00e5a0" : "#ff4d6d" }}>{t.points ? t.points + "pts" : "--"}</span>
-                      {t.screenshots?.length > 0 && <span style={{ fontSize: 9, color: "#3b82f6", background: "rgba(59,130,246,0.1)", padding: "1px 7px", borderRadius: 10 }}>{t.screenshots.length} chart{t.screenshots.length > 1 ? "s" : ""}</span>}
+                      {t.screenshotName && <span style={{ fontSize: 9, color: "#3b82f6", background: "rgba(59,130,246,0.1)", padding: "1px 7px", borderRadius: 10 }}>has chart</span>}
                       <span style={{ marginLeft: "auto", fontSize: 9, color: "#4b5563" }}>click to review →</span>
                     </div>
                   ))}
