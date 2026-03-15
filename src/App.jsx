@@ -402,6 +402,7 @@ export default function GCJournal() {
   const [sessionOverridden, setSessionOverridden] = useState(false);
   const [lightboxSrc, setLightboxSrc]     = useState(null);
   const [analyticsMode, setAnalyticsMode] = useState("All");
+  const [analyticsMonth, setAnalyticsMonth] = useState("All");
   const [checkedRules, setCheckedRules]   = useState({});
   const [isDragging, setIsDragging]       = useState(false);
   const [pasteMode, setPasteMode]         = useState(false);
@@ -620,11 +621,30 @@ export default function GCJournal() {
     reader.readAsText(file);
   };
 
-  // ── Streak calculation ──────────────────────────────────────────────────
+  // ── Streak calculation — resets on new ISO week ────────────────────────
   const streaks = useMemo(() => {
+    const getWeekKey = (dt) => {
+      if (!dt) return "";
+      const d = new Date(dt);
+      // ISO week: Monday-based
+      const day = d.getUTCDay() || 7;
+      const monday = new Date(d);
+      monday.setUTCDate(d.getUTCDate() - day + 1);
+      return monday.toISOString().slice(0, 10);
+    };
+
     const sorted = [...trades].sort((a, b) => a.entryDatetime < b.entryDatetime ? -1 : 1);
     let curWin = 0, curLoss = 0, maxWin = 0, maxLoss = 0;
+    let prevWeek = null;
+
     sorted.forEach(t => {
+      const week = getWeekKey(t.entryDatetime);
+      // New week — reset current loss streak (wins streak also resets on new week for cleanliness)
+      if (week && week !== prevWeek) {
+        curLoss = 0;
+        curWin = 0;
+        prevWeek = week;
+      }
       if (t.outcome === "Win") { curWin++; curLoss = 0; maxWin = Math.max(maxWin, curWin); }
       else if (t.outcome === "Loss") { curLoss++; curWin = 0; maxLoss = Math.max(maxLoss, curLoss); }
       else { curWin = 0; curLoss = 0; }
@@ -634,9 +654,17 @@ export default function GCJournal() {
 
   // ── Analytics ──────────────────────────────────────────────────────────
   const analyticsTrades = useMemo(() => {
-    if (analyticsMode === "All") return trades;
-    return trades.filter(t => (t.tradeMode || "Backtest") === analyticsMode);
-  }, [trades, analyticsMode]);
+    let src = trades;
+    if (analyticsMode !== "All") src = src.filter(t => (t.tradeMode || "Backtest") === analyticsMode);
+    if (analyticsMonth !== "All") src = src.filter(t => t.entryDatetime && t.entryDatetime.slice(0, 7) === analyticsMonth);
+    return src;
+  }, [trades, analyticsMode, analyticsMonth]);
+
+  // Available months derived from all trades
+  const availableMonths = useMemo(() => {
+    const months = [...new Set(trades.map(t => t.entryDatetime?.slice(0, 7)).filter(Boolean))].sort().reverse();
+    return months;
+  }, [trades]);
 
   const stats = useMemo(() => {
     const src = analyticsTrades;
@@ -677,7 +705,28 @@ export default function GCJournal() {
     let cum = 0;
     const equity = sorted.map(t => { cum += parseFloat(t.points) || 0; return { pts: parseFloat(cum.toFixed(1)), outcome: t.outcome }; });
 
-    // Setup vs execution grade comparison
+    // Gain % — assumes 1% risk per point (1 point = 1R = 1% account)
+    // Using points directly: total gain % = totalPoints * 1% per point / 10
+    // GC: 1 point = $100, so points / 10 = % of account at 1% risk per trade
+    const gainPct = (parseFloat(totalPoints) / 10).toFixed(1);
+
+    // Monthly breakdown
+    const byMonth = {};
+    src.forEach(t => {
+      const mo = t.entryDatetime?.slice(0, 7);
+      if (!mo) return;
+      if (!byMonth[mo]) byMonth[mo] = { wins: 0, losses: 0, points: 0 };
+      if (t.outcome === "Win") byMonth[mo].wins++;
+      else if (t.outcome === "Loss") byMonth[mo].losses++;
+      byMonth[mo].points += parseFloat(t.points) || 0;
+    });
+    const monthlyData = Object.entries(byMonth).sort((a, b) => b[0].localeCompare(a[0])).map(([mo, d]) => ({
+      mo, ...d,
+      total: d.wins + d.losses,
+      wr: d.wins + d.losses ? ((d.wins / (d.wins + d.losses)) * 100).toFixed(0) : 0,
+      gainPct: (d.points / 10).toFixed(1),
+      points: d.points.toFixed(1),
+    }));
     const setupVsExec = { AA: 0, AB: 0, BA: 0, BB: 0, other: 0 };
     src.forEach(t => {
       const key = (t.grade || "U") + (t.executionGrade || "U");
@@ -688,7 +737,7 @@ export default function GCJournal() {
       else setupVsExec.other++;
     });
 
-    return { wins: wins.length, losses: losses.length, winRate, avgRRR, avgPoints, totalPoints, avgMAE, byGrade, byExecGrade, byCandle, bySession, byType, byHtf, byStructure, heatmap, equity, setupVsExec };
+    return { wins: wins.length, losses: losses.length, winRate, avgRRR, avgPoints, totalPoints, gainPct, avgMAE, byGrade, byExecGrade, byCandle, bySession, byType, byHtf, byStructure, heatmap, equity, setupVsExec, monthlyData };
   }, [analyticsTrades]);
 
   // ── Filtered / grouped log ─────────────────────────────────────────────
@@ -1224,13 +1273,25 @@ export default function GCJournal() {
       {/* ═══ ANALYTICS ═══ */}
       {!loading && view === "analytics" && (
         <div style={{ maxWidth: 1240, margin: "0 auto", padding: "28px 20px" }}>
-          <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 10, color: "#8b949e", letterSpacing: 2 }}>VIEWING:</span>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10, color: "#8b949e", letterSpacing: 2 }}>MODE:</span>
             {["All", ...TRADE_MODES].map(m => (
               <button key={m} onClick={() => setAnalyticsMode(m)} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid ${analyticsMode === m ? "#f5c842" : "#2a2f3a"}`, background: analyticsMode === m ? "rgba(245,200,66,0.1)" : "transparent", color: analyticsMode === m ? "#f5c842" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase" }}>
                 {m}
               </button>
             ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10, color: "#8b949e", letterSpacing: 2 }}>MONTH:</span>
+            <button onClick={() => setAnalyticsMonth("All")} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid ${analyticsMonth === "All" ? "#a78bfa" : "#2a2f3a"}`, background: analyticsMonth === "All" ? "rgba(167,139,250,0.1)" : "transparent", color: analyticsMonth === "All" ? "#a78bfa" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>All</button>
+            {availableMonths.map(m => {
+              const label = new Date(m + "-02").toLocaleString("en-US", { month: "short", year: "2-digit" });
+              return (
+                <button key={m} onClick={() => setAnalyticsMonth(m)} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid ${analyticsMonth === m ? "#a78bfa" : "#2a2f3a"}`, background: analyticsMonth === m ? "rgba(167,139,250,0.1)" : "transparent", color: analyticsMonth === m ? "#a78bfa" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                  {label}
+                </button>
+              );
+            })}
             <span style={{ fontSize: 10, color: "#4b5563" }}>{analyticsTrades.length} trades</span>
           </div>
 
@@ -1243,6 +1304,7 @@ export default function GCJournal() {
                 ["Total Trades", analyticsTrades.length, "#e6edf3"],
                 ["Win Rate", `${stats.winRate}%`, "#00e5a0"],
                 ["Total Points", stats.totalPoints, parseFloat(stats.totalPoints) >= 0 ? "#00e5a0" : "#ff4d6d"],
+                ["Overall Gain", `${parseFloat(stats.gainPct) >= 0 ? "+" : ""}${stats.gainPct}%`, parseFloat(stats.gainPct) >= 0 ? "#00e5a0" : "#ff4d6d"],
                 ["Avg Pts/Trade", stats.avgPoints, "#e6edf3"],
                 ["Avg RRR", stats.avgRRR, "#f5c842"],
                 ["W / L", `${stats.wins} / ${stats.losses}`, "#e6edf3"],
@@ -1250,12 +1312,54 @@ export default function GCJournal() {
                 ["Loss Streak", `${streaks.curLoss}L cur / ${streaks.maxLoss}L worst`, streaks.curLoss >= 3 ? "#ff4d6d" : "#e6edf3"],
                 ...(stats.avgMAE ? [["Avg MAE", `${stats.avgMAE} pts`, "#a78bfa"]] : []),
               ].map(([label, val, color]) => (
-                <div key={label} style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: "16px 18px" }}>
+                <div key={label} style={{ background: "#0d1117", border: label === "Overall Gain" ? `1px solid ${parseFloat(stats.gainPct) >= 0 ? "#00e5a044" : "#ff4d6d44"}` : "1px solid #1f2937", borderRadius: 12, padding: "16px 18px" }}>
                   <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
                   <div style={{ fontSize: label.includes("Streak") ? 14 : 22, fontWeight: 700, color }}>{val}</div>
+                  {label === "Overall Gain" && <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>at 1% risk/trade</div>}
                 </div>
               ))}
             </div>
+
+            {/* Monthly Breakdown Table */}
+            {analyticsMonth === "All" && stats.monthlyData.length > 0 && (
+              <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 20, marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 14, fontWeight: 700 }}>Monthly Breakdown</div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr>
+                        {["Month","Trades","W","L","Win Rate","Points","Gain %"].map(h => (
+                          <td key={h} style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", paddingBottom: 10, paddingRight: 16, whiteSpace: "nowrap" }}>{h}</td>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.monthlyData.map((m, i) => {
+                        const gain = parseFloat(m.gainPct);
+                        const pts  = parseFloat(m.points);
+                        return (
+                          <tr key={m.mo} style={{ borderTop: "1px solid #1f2937" }}>
+                            <td style={{ padding: "10px 16px 10px 0", color: "#e6edf3", fontWeight: 700 }}>
+                              {new Date(m.mo + "-02").toLocaleString("en-US", { month: "short", year: "numeric" })}
+                            </td>
+                            <td style={{ padding: "10px 16px 10px 0", color: "#9ca3af" }}>{m.total}</td>
+                            <td style={{ padding: "10px 16px 10px 0", color: "#00e5a0" }}>{m.wins}</td>
+                            <td style={{ padding: "10px 16px 10px 0", color: "#ff4d6d" }}>{m.losses}</td>
+                            <td style={{ padding: "10px 16px 10px 0", color: parseInt(m.wr) >= 55 ? "#00e5a0" : parseInt(m.wr) >= 40 ? "#f5c842" : "#ff4d6d", fontWeight: 700 }}>{m.wr}%</td>
+                            <td style={{ padding: "10px 16px 10px 0", color: pts >= 0 ? "#00e5a0" : "#ff4d6d", fontWeight: 700 }}>{pts >= 0 ? "+" : ""}{m.points}</td>
+                            <td style={{ padding: "10px 16px 10px 0", fontWeight: 700 }}>
+                              <span style={{ color: gain >= 0 ? "#00e5a0" : "#ff4d6d", background: gain >= 0 ? "rgba(0,229,160,0.08)" : "rgba(255,77,109,0.08)", padding: "2px 10px", borderRadius: 20 }}>
+                                {gain >= 0 ? "+" : ""}{m.gainPct}%
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Equity Curve */}
             <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 20, marginBottom: 14 }}>
