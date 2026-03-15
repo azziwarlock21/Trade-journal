@@ -621,13 +621,14 @@ export default function GCJournal() {
     reader.readAsText(file);
   };
 
-  // ── Streak calculation — resets on new ISO week ────────────────────────
+  // ── Streak calculation ─────────────────────────────────────────────────
+  // curLoss resets on a new trading week (stop-week rule)
+  // curWin never resets on week boundary — win streaks are continuous
   const streaks = useMemo(() => {
     const getWeekKey = (dt) => {
       if (!dt) return "";
       const d = new Date(dt);
-      // ISO week: Monday-based
-      const day = d.getUTCDay() || 7;
+      const day = d.getUTCDay() || 7; // Mon=1 ... Sun=7
       const monday = new Date(d);
       monday.setUTCDate(d.getUTCDate() - day + 1);
       return monday.toISOString().slice(0, 10);
@@ -639,15 +640,14 @@ export default function GCJournal() {
 
     sorted.forEach(t => {
       const week = getWeekKey(t.entryDatetime);
-      // New week — reset current loss streak (wins streak also resets on new week for cleanliness)
+      // New week: reset loss streak only (stop-week rule resets each Monday)
       if (week && week !== prevWeek) {
         curLoss = 0;
-        curWin = 0;
         prevWeek = week;
       }
-      if (t.outcome === "Win") { curWin++; curLoss = 0; maxWin = Math.max(maxWin, curWin); }
-      else if (t.outcome === "Loss") { curLoss++; curWin = 0; maxLoss = Math.max(maxLoss, curLoss); }
-      else { curWin = 0; curLoss = 0; }
+      if (t.outcome === "Win")        { curWin++; curLoss = 0; maxWin  = Math.max(maxWin,  curWin);  }
+      else if (t.outcome === "Loss")  { curLoss++; curWin = 0; maxLoss = Math.max(maxLoss, curLoss); }
+      else                            { curWin = 0; curLoss = 0; }
     });
     return { curWin, curLoss, maxWin, maxLoss };
   }, [trades]);
