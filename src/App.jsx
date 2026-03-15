@@ -672,7 +672,11 @@ export default function GCJournal() {
     const wins   = src.filter(t => t.outcome === "Win");
     const losses = src.filter(t => t.outcome === "Loss");
     const winRate    = ((wins.length / src.length) * 100).toFixed(1);
-    const avgRRR     = (src.reduce((a, t) => a + (parseFloat(t.rrr) || 0), 0) / src.length).toFixed(2);
+    const avgRRR     = wins.length
+      ? (wins.reduce((a, t) => a + (parseFloat(t.rrr) || 0), 0) / wins.length).toFixed(2)
+      : "0.00";
+    const winRate01  = wins.length / src.length;
+    const expectancy = ((winRate01 * 2) - ((1 - winRate01) * 1)).toFixed(2); // R per trade
     const avgPoints  = (src.reduce((a, t) => a + (parseFloat(t.points) || 0), 0) / src.length).toFixed(1);
     const totalPoints = src.reduce((a, t) => a + (parseFloat(t.points) || 0), 0).toFixed(1);
     const avgMAE     = src.filter(t => t.mae).length
@@ -735,7 +739,7 @@ export default function GCJournal() {
       else setupVsExec.other++;
     });
 
-    return { wins: wins.length, losses: losses.length, winRate, avgRRR, avgPoints, totalPoints, gainPct, avgMAE, byGrade, byExecGrade, byCandle, bySession, byType, byHtf, byStructure, heatmap, equity, setupVsExec, monthlyData };
+    return { wins: wins.length, losses: losses.length, winRate, avgRRR, avgPoints, totalPoints, gainPct, expectancy, avgMAE, byGrade, byExecGrade, byCandle, bySession, byType, byHtf, byStructure, heatmap, equity, setupVsExec, monthlyData };
   }, [analyticsTrades]);
 
   // ── Filtered / grouped log ─────────────────────────────────────────────
@@ -1304,7 +1308,8 @@ export default function GCJournal() {
                 ["Total Points", stats.totalPoints, parseFloat(stats.totalPoints) >= 0 ? "#00e5a0" : "#ff4d6d"],
                 ["Overall Gain", `${parseFloat(stats.gainPct) >= 0 ? "+" : ""}${stats.gainPct}%`, parseFloat(stats.gainPct) >= 0 ? "#00e5a0" : "#ff4d6d"],
                 ["Avg Pts/Trade", stats.avgPoints, "#e6edf3"],
-                ["Avg RRR", stats.avgRRR, "#f5c842"],
+                ["Avg RRR (wins)", stats.avgRRR, "#f5c842"],
+                ["Expectancy", `${parseFloat(stats.expectancy) >= 0 ? "+" : ""}${stats.expectancy}R`, parseFloat(stats.expectancy) >= 0 ? "#00e5a0" : "#ff4d6d"],
                 ["W / L", `${stats.wins} / ${stats.losses}`, "#e6edf3"],
                 ["Win Streak", `${streaks.curWin}W cur / ${streaks.maxWin}W best`, "#00e5a0"],
                 ["Loss Streak", `${streaks.curLoss}L cur / ${streaks.maxLoss}L worst`, streaks.curLoss >= 3 ? "#ff4d6d" : "#e6edf3"],
@@ -1314,6 +1319,8 @@ export default function GCJournal() {
                   <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
                   <div style={{ fontSize: label.includes("Streak") ? 14 : 22, fontWeight: 700, color }}>{val}</div>
                   {label === "Overall Gain" && <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>+2% per win · −1% per loss</div>}
+                  {label === "Avg RRR (wins)" && <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>losses excluded</div>}
+                  {label === "Expectancy" && <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>R earned per trade avg</div>}
                 </div>
               ))}
             </div>
@@ -1738,7 +1745,7 @@ export default function GCJournal() {
           const alignedWR = aligned.length ? (aligned.filter(t => t.outcome === "Win").length / aligned.length * 100).toFixed(0) : null;
           const misalignedWR = misaligned.length ? (misaligned.filter(t => t.outcome === "Win").length / misaligned.length * 100).toFixed(0) : null;
 
-          // Avg RRR on wins
+          // RRR on wins (losses correctly excluded — loss RRR is always -1.00)
           const avgRRRWins = wins.length ? (wins.reduce((a, t) => a + (parseFloat(t.rrr) || 0), 0) / wins.length).toFixed(2) : null;
 
           // Loss streaks
