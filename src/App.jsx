@@ -64,10 +64,38 @@ const fromRow = (r) => ({
   screenshots: (() => { try { return r.screenshot ? JSON.parse(r.screenshot) : []; } catch(e) { return r.screenshot ? [{ data: r.screenshot, name: r.screenshot_name || "screenshot" }] : []; } })(),
 });
 
+// All columns EXCEPT screenshot — for fast list load
+const LIGHT_COLS = "id,entry_datetime,exit_datetime,trade_type,direction,session,lot_size,entry_price,stop_loss,take_profit,points,rrr,candle_pattern,wick_direction,news,news_impact,htf_bias,market_structure,trade_mode,grade,execution_grade,outcome,mae,notes,screenshot_name";
+
 async function dbFetchAll() {
-  const res = await fetch(`${TABLE}?order=entry_datetime.desc&limit=2000`, { headers: { ...HEADERS, "Prefer": "return=representation" } });
+  const res = await fetch(`${TABLE}?select=${LIGHT_COLS}&order=entry_datetime.desc&limit=2000`, { headers: { ...HEADERS, "Prefer": "return=representation" } });
   if (!res.ok) throw new Error(await res.text());
-  return (await res.json()).map(fromRow);
+  return (await res.json()).map(r => ({ ...fromRow(r), screenshots: [], screenshotsLoaded: false }));
+}
+
+async function dbFetchScreenshots(id) {
+  const res = await fetch(`${TABLE}?select=id,screenshot,screenshot_name&id=eq.${id}`, { headers: HEADERS });
+  if (!res.ok) throw new Error(await res.text());
+  const rows = await res.json();
+  if (!rows[0]?.screenshot) return [];
+  try { return JSON.parse(rows[0].screenshot); }
+  catch(e) { return rows[0].screenshot ? [{ data: rows[0].screenshot, name: rows[0].screenshot_name || "screenshot" }] : []; }
+}
+
+// Compress image before storing — max 1200px wide, 0.82 quality
+function compressImage(dataUrl, maxWidth = 1200, quality = 0.82) {
+  return new Promise(resolve => {
+    const img = new window.Image();
+    img.onload = () => {
+      const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+      const canvas = document.createElement("canvas");
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.src = dataUrl;
+  });
 }
 async function dbInsert(trade) {
   const res = await fetch(TABLE, { method: "POST", headers: { ...HEADERS, "Prefer": "return=representation" }, body: JSON.stringify(toRow(trade)) });
@@ -491,10 +519,13 @@ export default function GCJournal() {
   const loadImageFile = (file) => {
     if (!file || !file.type.startsWith("image/")) return;
     const reader = new FileReader();
-    reader.onload = (ev) => setForm(f => ({
-      ...f,
-      screenshots: [...(f.screenshots || []), { data: ev.target.result, name: file.name }]
-    }));
+    reader.onload = async (ev) => {
+      const compressed = await compressImage(ev.target.result);
+      setForm(f => ({
+        ...f,
+        screenshots: [...(f.screenshots || []), { data: compressed, name: file.name }]
+      }));
+    };
     reader.readAsDataURL(file);
   };
 
@@ -515,6 +546,19 @@ export default function GCJournal() {
   const activatePasteMode = () => {
     setPasteMode(true);
     setTimeout(() => { if (pasteTargetRef.current) pasteTargetRef.current.focus(); }, 50);
+  };
+
+  // Lazy-load screenshots when a log row is expanded
+  const handleExpand = async (id) => {
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    const trade = trades.find(t => t.id === id);
+    if (trade && !trade.screenshotsLoaded) {
+      try {
+        const shots = await dbFetchScreenshots(id);
+        setTrades(ts => ts.map(t => t.id === id ? { ...t, screenshots: shots, screenshotsLoaded: true } : t));
+      } catch(e) { /* silent — screenshots just won't show */ }
+    }
   };
 
   const handleDrop = (e) => {
@@ -1242,7 +1286,7 @@ export default function GCJournal() {
                     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                       {dayTrades.map(t => (
                         <div key={t.id} style={{ background: "#0d1117", border: "1px solid #1f2937", borderTop: "none", overflow: "hidden" }}>
-                          <div onClick={() => setExpandedId(expandedId === t.id ? null : t.id)} style={{ padding: "11px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flexWrap: "wrap" }}>
+                          <div onClick={() => handleExpand(t.id)} style={{ padding: "11px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flexWrap: "wrap" }}>
                             <span style={{ fontSize: 10, color: "#6b7280", minWidth: 50 }}>{t.entryDatetime ? t.entryDatetime.split("T")[1]?.slice(0,5) : "--"}</span>
                             <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: modeColor(t.tradeMode || "Backtest") + "18", color: modeColor(t.tradeMode || "Backtest") }}>{t.tradeMode || "BT"}</span>
                             <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: t.direction === "Long" ? "rgba(0,229,160,0.1)" : "rgba(255,77,109,0.1)", color: t.direction === "Long" ? "#00e5a0" : "#ff4d6d" }}>{t.direction || "--"}</span>
@@ -1821,6 +1865,17 @@ export default function GCJournal() {
         const runTradeReview = async (trade) => {
           setReviewTrade(trade);
           setReviewResult(""); setReviewError(""); setReviewLoading(true);
+
+          // Lazy-load screenshots if not yet fetched
+          let fullTrade = trade;
+          if (!trade.screenshotsLoaded) {
+            try {
+              const shots = await dbFetchScreenshots(trade.id);
+              fullTrade = { ...trade, screenshots: shots, screenshotsLoaded: true };
+              setTrades(ts => ts.map(t => t.id === trade.id ? fullTrade : t));
+              setReviewTrade(fullTrade);
+            } catch(e) { /* proceed without screenshots */ }
+          }
           try {
             const tradeContext = `
 Trade details:
@@ -1845,12 +1900,12 @@ Trade details:
 - Notes: ${trade.notes || "none"}
             `.trim();
 
-            const hasScreenshots = trade.screenshots && trade.screenshots.length > 0;
+            const hasScreenshots = fullTrade.screenshots && trade.screenshots.length > 0;
 
             const messages = hasScreenshots ? [{
               role: "user",
               content: [
-                ...trade.screenshots.map(ss => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: ss.data.split(",")[1] } })),
+                ...fullTrade.screenshots.map(ss => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: ss.data.split(",")[1] } })),
                 { type: "text", text: `You are an expert GC gold futures trading coach reviewing a trade from a student's journal. Analyse the trade data and chart screenshot(s) provided. Give specific, honest, actionable feedback.\n\n${tradeContext}\n\nProvide feedback in these sections:\n1. Setup Quality — was this a valid setup based on the data and chart?\n2. Entry Timing — was the entry well-timed or could it have been better?\n3. Risk Management — SL placement, RRR, MAE assessment\n4. What Was Done Well — at least one positive\n5. What To Improve — specific and actionable, not generic\n6. Overall Verdict — one sentence summary\n\nBe direct and specific. Reference the actual prices and chart structure visible. Do not be vague.` }
               ]
             }] : [{
