@@ -624,31 +624,38 @@ export default function GCJournal() {
   // ── Streak calculation ─────────────────────────────────────────────────
   // curLoss resets on a new trading week (stop-week rule)
   // curWin never resets on week boundary — win streaks are continuous
+  // maxLoss tracks all-time consecutive losses ignoring week boundaries
   const streaks = useMemo(() => {
     const getWeekKey = (dt) => {
       if (!dt) return "";
       const d = new Date(dt);
-      const day = d.getUTCDay() || 7; // Mon=1 ... Sun=7
+      const day = d.getUTCDay() || 7;
       const monday = new Date(d);
       monday.setUTCDate(d.getUTCDate() - day + 1);
       return monday.toISOString().slice(0, 10);
     };
 
     const sorted = [...trades].sort((a, b) => a.entryDatetime < b.entryDatetime ? -1 : 1);
-    let curWin = 0, curLoss = 0, maxWin = 0, maxLoss = 0;
-    let prevWeek = null;
 
+    // Pass 1: curLoss / curWin with weekly reset — for current streak display + stop-week warning
+    let curWin = 0, curLoss = 0;
+    let prevWeek = null;
     sorted.forEach(t => {
       const week = getWeekKey(t.entryDatetime);
-      // New week: reset loss streak only (stop-week rule resets each Monday)
-      if (week && week !== prevWeek) {
-        curLoss = 0;
-        prevWeek = week;
-      }
-      if (t.outcome === "Win")        { curWin++; curLoss = 0; maxWin  = Math.max(maxWin,  curWin);  }
-      else if (t.outcome === "Loss")  { curLoss++; curWin = 0; maxLoss = Math.max(maxLoss, curLoss); }
-      else                            { curWin = 0; curLoss = 0; }
+      if (week && week !== prevWeek) { curLoss = 0; prevWeek = week; }
+      if (t.outcome === "Win")       { curWin++; curLoss = 0; }
+      else if (t.outcome === "Loss") { curLoss++; curWin = 0; }
+      else                           { curWin = 0; curLoss = 0; }
     });
+
+    // Pass 2: maxWin / maxLoss purely consecutive — no week resets
+    let maxWin = 0, maxLoss = 0, rawWin = 0, rawLoss = 0;
+    sorted.forEach(t => {
+      if (t.outcome === "Win")       { rawWin++; rawLoss = 0; maxWin  = Math.max(maxWin,  rawWin);  }
+      else if (t.outcome === "Loss") { rawLoss++; rawWin = 0; maxLoss = Math.max(maxLoss, rawLoss); }
+      else                           { rawWin = 0; rawLoss = 0; }
+    });
+
     return { curWin, curLoss, maxWin, maxLoss };
   }, [trades]);
 
