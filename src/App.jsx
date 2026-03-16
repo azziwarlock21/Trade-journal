@@ -429,6 +429,13 @@ export default function GCJournal() {
   const [userTz, setUserTz]               = useState("Europe/Berlin");
   const [sessionOverridden, setSessionOverridden] = useState(false);
   const [lightboxSrc, setLightboxSrc]     = useState(null);
+  const [lbZoom, setLbZoom]               = useState(1);
+  const [lbOffset, setLbOffset]           = useState({ x: 0, y: 0 });
+  const lbDragRef                         = useRef({ dragging: false, startX: 0, startY: 0, ox: 0, oy: 0 });
+  const lbLastTap                         = useRef(0);
+
+  const openLightbox  = (src) => { setLightboxSrc(src);  setLbZoom(1); setLbOffset({ x: 0, y: 0 }); };
+  const closeLightbox = ()    => { setLightboxSrc(null); setLbZoom(1); setLbOffset({ x: 0, y: 0 }); };
   const [analyticsMode, setAnalyticsMode] = useState("All");
   const [analyticsMonth, setAnalyticsMonth] = useState("All");
   // ── AI Coach — Data Analysis ───────────────────────────────────────────
@@ -1072,13 +1079,113 @@ export default function GCJournal() {
     <div style={{ fontFamily: "'IBM Plex Mono', 'Courier New', monospace", background: "#070b12", minHeight: "100vh", color: "#e6edf3" }}>
       <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
 
-      {/* LIGHTBOX */}
-      {lightboxSrc && (
-        <div onClick={() => setLightboxSrc(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.93)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out", padding: 24 }}>
-          <div style={{ position: "absolute", top: 20, right: 28, fontSize: 26, color: "#8b949e", cursor: "pointer" }} onClick={() => setLightboxSrc(null)}>×</div>
-          <img src={lightboxSrc} alt="chart" style={{ maxWidth: "95vw", maxHeight: "92vh", borderRadius: 10, border: "1px solid #2a2f3a" }} onClick={e => e.stopPropagation()} />
-        </div>
-      )}
+      {/* LIGHTBOX — tap backdrop or image to close, scroll to zoom, drag to pan, double-tap to zoom */}
+      {lightboxSrc && (() => {
+        const handleWheel = (e) => {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? -0.15 : 0.15;
+          setLbZoom(z => Math.min(Math.max(z + delta, 0.5), 8));
+        };
+
+        const handleImgClick = (e) => {
+          e.stopPropagation();
+          const now = Date.now();
+          const since = now - lbLastTap.current;
+          lbLastTap.current = now;
+          if (since < 300) {
+            // Double tap — toggle between 1x and 2.5x
+            setLbZoom(z => z > 1.2 ? 1 : 2.5);
+            setLbOffset({ x: 0, y: 0 });
+          } else {
+            // Single tap — close if not zoomed, or ignore if zoomed (let user drag)
+            if (lbZoom <= 1.05) closeLightbox();
+          }
+        };
+
+        const handleMouseDown = (e) => {
+          e.stopPropagation();
+          lbDragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, ox: lbOffset.x, oy: lbOffset.y };
+        };
+        const handleMouseMove = (e) => {
+          if (!lbDragRef.current.dragging) return;
+          setLbOffset({
+            x: lbDragRef.current.ox + (e.clientX - lbDragRef.current.startX),
+            y: lbDragRef.current.oy + (e.clientY - lbDragRef.current.startY),
+          });
+        };
+        const handleMouseUp = () => { lbDragRef.current.dragging = false; };
+
+        // Touch drag
+        const handleTouchStart = (e) => {
+          if (e.touches.length === 1) {
+            lbDragRef.current = { dragging: true, startX: e.touches[0].clientX, startY: e.touches[0].clientY, ox: lbOffset.x, oy: lbOffset.y };
+          }
+        };
+        const handleTouchMove = (e) => {
+          if (e.touches.length === 1 && lbDragRef.current.dragging) {
+            e.preventDefault();
+            setLbOffset({
+              x: lbDragRef.current.ox + (e.touches[0].clientX - lbDragRef.current.startX),
+              y: lbDragRef.current.oy + (e.touches[0].clientY - lbDragRef.current.startY),
+            });
+          }
+        };
+        const handleTouchEnd = () => { lbDragRef.current.dragging = false; };
+
+        const zoomIn  = (e) => { e.stopPropagation(); setLbZoom(z => Math.min(z + 0.5, 8)); };
+        const zoomOut = (e) => { e.stopPropagation(); setLbZoom(z => { const nz = Math.max(z - 0.5, 0.5); if (nz <= 1) setLbOffset({ x: 0, y: 0 }); return nz; }); };
+        const resetZoom = (e) => { e.stopPropagation(); setLbZoom(1); setLbOffset({ x: 0, y: 0 }); };
+
+        return (
+          <div
+            onClick={closeLightbox}
+            onWheel={handleWheel}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", cursor: lbZoom > 1 ? "grab" : "zoom-out", userSelect: "none", touchAction: "none" }}>
+
+            {/* Controls top bar */}
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", background: "linear-gradient(to bottom, rgba(0,0,0,0.6), transparent)", zIndex: 10000 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={zoomOut} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #2a2f3a", background: "rgba(13,17,23,0.8)", color: "#e6edf3", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" }}>−</button>
+                <span onClick={resetZoom} style={{ fontSize: 11, color: "#f5c842", fontWeight: 700, cursor: "pointer", background: "rgba(13,17,23,0.8)", padding: "4px 10px", borderRadius: 6, border: "1px solid #2a2f3a", fontFamily: "inherit" }}>{Math.round(lbZoom * 100)}%</span>
+                <button onClick={zoomIn}  style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #2a2f3a", background: "rgba(13,17,23,0.8)", color: "#e6edf3", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" }}>+</button>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 10, color: "#4b5563" }}>{lbZoom <= 1.05 ? "tap image to close" : "double-tap to reset"}</span>
+                <button onClick={(e) => { e.stopPropagation(); closeLightbox(); }} style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #2a2f3a", background: "rgba(13,17,23,0.8)", color: "#8b949e", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" }}>×</button>
+              </div>
+            </div>
+
+            {/* Image */}
+            <img
+              src={lightboxSrc}
+              alt="chart"
+              onClick={handleImgClick}
+              onMouseDown={handleMouseDown}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              draggable={false}
+              style={{
+                maxWidth: "95vw",
+                maxHeight: "92vh",
+                borderRadius: lbZoom > 1 ? 4 : 10,
+                border: "1px solid #2a2f3a",
+                transform: `scale(${lbZoom}) translate(${lbOffset.x / lbZoom}px, ${lbOffset.y / lbZoom}px)`,
+                transformOrigin: "center center",
+                transition: lbDragRef.current.dragging ? "none" : "transform 0.15s ease",
+                cursor: lbZoom > 1.05 ? "grab" : "zoom-out",
+              }}
+            />
+
+            {/* Hint bar bottom */}
+            <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", fontSize: 10, color: "#374151", letterSpacing: 1, whiteSpace: "nowrap" }}>
+              SCROLL TO ZOOM · DRAG TO PAN · DOUBLE-TAP TO TOGGLE ZOOM · TAP TO CLOSE
+            </div>
+          </div>
+        );
+      })()}
 
       {/* HEADER */}
       <div style={{ background: "linear-gradient(135deg, #0d1117, #111827)", borderBottom: "1px solid #1f2937", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, position: "sticky", top: 0, zIndex: 100 }}>
@@ -1326,7 +1433,7 @@ export default function GCJournal() {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
                     {form.screenshots.map((ss, idx) => (
                       <div key={idx} style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: "1px solid #2a2f3a" }}>
-                        <img src={ss.data} alt={ss.name} onClick={() => setLightboxSrc(ss.data)}
+                        <img src={ss.data} alt={ss.name} onClick={() => openLightbox(ss.data)}
                           style={{ width: "100%", height: 120, objectFit: "cover", cursor: "zoom-in", display: "block" }} />
                         <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(0,0,0,0.7)", padding: "4px 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <span style={{ fontSize: 9, color: "#8b949e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>{ss.name}</span>
@@ -1462,7 +1569,7 @@ export default function GCJournal() {
                                 <div key={k}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>{k}</div><div style={{ fontSize: 12, color: "#e6edf3" }}>{v}</div></div>
                               ) : null)}
                               {t.notes && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Notes</div><div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>{t.notes}</div></div>}
-                              {t.screenshots?.length > 0 && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Screenshots ({t.screenshots.length})</div><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>{t.screenshots.map((ss, idx) => <img key={idx} src={ss.data} alt={ss.name} onClick={() => setLightboxSrc(ss.data)} style={{ width: "100%", height: 110, objectFit: "cover", borderRadius: 8, border: "1px solid #2a2f3a", cursor: "zoom-in", display: "block" }} />)}</div></div>}
+                              {t.screenshots?.length > 0 && <div style={{ gridColumn: "1/-1" }}><div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Screenshots ({t.screenshots.length})</div><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>{t.screenshots.map((ss, idx) => <img key={idx} src={ss.data} alt={ss.name} onClick={() => openLightbox(ss.data)} style={{ width: "100%", height: 110, objectFit: "cover", borderRadius: 8, border: "1px solid #2a2f3a", cursor: "zoom-in", display: "block" }} />)}</div></div>}
                             </div>
                           )}
                         </div>
@@ -1999,7 +2106,7 @@ export default function GCJournal() {
                     {reviewTrade.screenshots?.length > 0 && (
                       <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
                         {reviewTrade.screenshots.map((ss, i) => (
-                          <img key={i} src={ss.data} alt="chart" onClick={() => setLightboxSrc(ss.data)}
+                          <img key={i} src={ss.data} alt="chart" onClick={() => openLightbox(ss.data)}
                             style={{ height: 36, width: 52, objectFit: "cover", borderRadius: 5, border: "1px solid #2a2f3a", cursor: "zoom-in" }} />
                         ))}
                       </div>
