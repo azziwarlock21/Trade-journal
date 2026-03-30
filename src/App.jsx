@@ -438,6 +438,7 @@ export default function GCJournal() {
   const closeLightbox = ()    => { setLightboxSrc(null); setLbZoom(1); setLbOffset({ x: 0, y: 0 }); };
   const [analyticsMode, setAnalyticsMode] = useState("All");
   const [analyticsMonth, setAnalyticsMonth] = useState("All");
+  const [checkedRules, setCheckedRules]   = useState({});
   // ── AI Coach — Data Analysis ───────────────────────────────────────────
   const runDataAnalysis = useCallback(() => {
     if (trades.length < 5) { setCoachError("Log at least 5 trades before running analysis."); return; }
