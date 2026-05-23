@@ -605,6 +605,10 @@ export default function GCJournal() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError]     = useState("");
 
+  // ── TopstepX Sync state ───────────────────────────────────────────────────
+  const [syncStatus, setSyncStatus]       = useState(null); // {synced, from, to, error}
+  const [syncRunning, setSyncRunning]     = useState(false);
+
   // ── Position Calculator state ──────────────────────────────────────────
   const [calcAccount, setCalcAccount]     = useState("100000");
   const [calcRisk, setCalcRisk]           = useState("0.5");
@@ -638,6 +642,34 @@ export default function GCJournal() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // ── TopstepX manual sync trigger ──────────────────────────────────────────
+  const triggerSync = useCallback(async () => {
+    setSyncRunning(true); setSyncStatus(null);
+    try {
+      const CRON_SECRET = process.env.REACT_APP_CRON_SECRET || "";
+      const base = window.location.origin;
+      const res = await fetch(`${base}/api/sync-topstepx`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${CRON_SECRET}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Sync failed");
+      setSyncStatus({ synced: data.synced, from: data.from, to: data.to, error: null });
+      if (data.synced > 0) {
+        // Refresh trades from Supabase to show new ones
+        const fresh = await dbFetchAll();
+        setTrades(fresh);
+      }
+    } catch(e) {
+      setSyncStatus({ synced: 0, error: e.message });
+    } finally {
+      setSyncRunning(false);
+    }
   }, []);
 
   const set = (k, v) => {
@@ -1210,6 +1242,9 @@ export default function GCJournal() {
           <label style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
             CSV ↑<input ref={importRef} type="file" accept=".csv" onChange={importCSV} style={{ display: "none" }} />
           </label>
+          <button onClick={triggerSync} disabled={syncRunning} title="Sync trades from TopstepX" style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${syncRunning ? "#2a2f3a" : syncStatus?.error ? "#ff4d6d44" : syncStatus?.synced > 0 ? "#00e5a044" : "#2a2f3a"}`, background: syncRunning ? "transparent" : syncStatus?.synced > 0 ? "rgba(0,229,160,0.06)" : "transparent", color: syncRunning ? "#6b7280" : syncStatus?.error ? "#ff4d6d" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: syncRunning ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+            {syncRunning ? "Syncing..." : "TSX ↓"}
+          </button>
           <select value={userTz} onChange={e => { setUserTz(e.target.value); setSessionOverridden(false); }} style={{ background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "7px 10px", color: "#f5c842", fontSize: 10, fontFamily: "inherit" }}>
             {TIMEZONES.map(t => <option key={t.tz} value={t.tz}>{t.label}</option>)}
           </select>
@@ -1231,6 +1266,17 @@ export default function GCJournal() {
             </span>
           )}
           <span style={{ marginLeft: "auto", fontSize: 9, color: "#4b5563" }}>Press N for new trade</span>
+        </div>
+      )}
+
+      {/* SYNC STATUS TOAST */}
+      {syncStatus && (
+        <div style={{ background: syncStatus.error ? "rgba(255,77,109,0.08)" : "rgba(0,229,160,0.06)", borderBottom: `1px solid ${syncStatus.error ? "#ff4d6d33" : "#00e5a033"}`, padding: "7px 24px", display: "flex", alignItems: "center", gap: 12, fontSize: 11 }}>
+          {syncStatus.error
+            ? <><span style={{ color: "#ff4d6d", fontWeight: 700 }}>✕ Sync failed:</span><span style={{ color: "#9ca3af" }}>{syncStatus.error}</span></>
+            : <><span style={{ color: "#00e5a0", fontWeight: 700 }}>✓ TopstepX synced</span><span style={{ color: "#9ca3af" }}>{syncStatus.synced} new trade{syncStatus.synced !== 1 ? "s" : ""} imported</span>{syncStatus.synced === 0 && <span style={{ color: "#4b5563" }}>— no new fills since last sync</span>}</>
+          }
+          <button onClick={() => setSyncStatus(null)} style={{ marginLeft: "auto", fontSize: 11, color: "#4b5563", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>✕</button>
         </div>
       )}
 
