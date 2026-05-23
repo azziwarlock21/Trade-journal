@@ -1,0 +1,14 @@
+{
+  "crons": [
+    {
+      "path": "/api/sync-topstepx",
+      "schedule": "*/15 12-21 * * 1-5"
+    }
+  ],
+  "functions": {
+    "api/sync-topstepx.js": {
+      "memory": 256,
+      "maxDuration": 30
+    }
+  }
+}
