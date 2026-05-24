@@ -417,6 +417,11 @@ export default function GCJournal() {
   const [trades, setTrades]               = useState([]);
   const [loading, setLoading]             = useState(true);
   const [syncing, setSyncing]             = useState(false);
+  const [multiMode, setMultiMode]         = useState(false);
+  const [multiPositions, setMultiPositions] = useState([
+    { entryDatetime: "", exitDatetime: "", entryPrice: "", maePrice: "", notes: "" },
+    { entryDatetime: "", exitDatetime: "", entryPrice: "", maePrice: "", notes: "" },
+  ]);
   const [syncError, setSyncError]         = useState("");
   const [form, setForm]                   = useState(defaultForm());
   const [view, setView]                   = useState("journal");
@@ -785,6 +790,80 @@ export default function GCJournal() {
         setTrades(ts => [newTrade, ...ts]);
       }
       resetForm();
+    } catch(e) { setSyncError("Save failed: " + e.message); }
+    finally { setSyncing(false); }
+  };
+
+  const saveMultiTrades = async () => {
+    const valid = multiPositions.filter(p => p.entryPrice && p.entryDatetime);
+    if (!valid.length) { alert("Fill in Entry Time and Entry Price for at least one row."); return; }
+    if (!form.direction || !form.tradeType) { alert("Please fill in Direction and Trade Type in the shared fields above."); return; }
+    setSyncing(true); setSyncError("");
+    try {
+      const inserted = [];
+      for (let i = 0; i < valid.length; i++) {
+        const pos = valid[i];
+        const ep  = parseFloat(pos.entryPrice);
+        const sl  = parseFloat(form.stopLoss);
+        const tp  = parseFloat(form.takeProfit);
+        const dir = form.direction;
+
+        // Determine outcome from TP/SL vs entry
+        let outcome = "Win";
+        if (!isNaN(ep) && !isNaN(sl) && !isNaN(tp)) {
+          outcome = dir === "Long" ? (tp > ep ? "Win" : "Loss") : (tp < ep ? "Win" : "Loss");
+        }
+
+        const pts = (!isNaN(ep) && !isNaN(sl) && !isNaN(tp))
+          ? calcPointsFromOutcome(ep, sl, tp, dir, outcome)
+          : "";
+        const rr = (!isNaN(ep) && !isNaN(sl) && !isNaN(tp))
+          ? calcRRRFromOutcome(ep, sl, tp, dir, outcome)
+          : "";
+
+        // MAE
+        const maeP = parseFloat(pos.maePrice);
+        let mae = "";
+        if (!isNaN(maeP) && !isNaN(ep)) {
+          const raw = dir === "Long" ? (ep - maeP) * 10 : (maeP - ep) * 10;
+          mae = raw > 0 ? raw.toFixed(1) : "0.0";
+        }
+
+        // Session from entry time
+        const session = sessionOverridden ? form.session : (detectSession(pos.entryDatetime) || form.session);
+
+        // News from entry time
+        const newsMatch = detectNewsEvent(pos.entryDatetime);
+
+        const trade = {
+          ...form,
+          id:            Date.now() + i * 1000 + Math.floor(Math.random() * 999),
+          entryDatetime: pos.entryDatetime,
+          exitDatetime:  pos.exitDatetime || pos.entryDatetime,
+          entryPrice:    pos.entryPrice,
+          session,
+          news:          newsMatch ? newsMatch.event : "None",
+          newsImpact:    newsMatch ? newsMatch.impact : "Low",
+          points:        pts,
+          rrr:           rr,
+          mae,
+          maePrice:      pos.maePrice || "",
+          outcome,
+          notes:         pos.notes
+            ? `${pos.notes}${form.notes ? ` | ${form.notes}` : ""}`
+            : form.notes || "",
+          screenshots:   [], // screenshots attached to individual trades after logging
+        };
+        await dbInsert(trade);
+        inserted.push(trade);
+      }
+      setTrades(ts => [...inserted.reverse(), ...ts]);
+      // Reset only positions, keep shared fields for convenience
+      setMultiPositions([
+        { entryDatetime: "", exitDatetime: "", entryPrice: "", maePrice: "", notes: "" },
+        { entryDatetime: "", exitDatetime: "", entryPrice: "", maePrice: "", notes: "" },
+      ]);
+      setSyncError("");
     } catch(e) { setSyncError("Save failed: " + e.message); }
     finally { setSyncing(false); }
   };
@@ -1296,8 +1375,20 @@ export default function GCJournal() {
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px" }}>
           <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 16, padding: 24 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase" }}>
-                {editId ? "Edit Trade" : "+ Log New Trade"}
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase" }}>
+                  {editId ? "Edit Trade" : multiMode ? "+ Log Multiple Positions" : "+ Log New Trade"}
+                </div>
+                {!editId && (
+                  <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: "1px solid #2a2f3a" }}>
+                    {["Single", "Multi"].map(m => (
+                      <button key={m} onClick={() => setMultiMode(m === "Multi")}
+                        style={{ padding: "5px 14px", border: "none", background: (m === "Multi") === multiMode ? "rgba(245,200,66,0.15)" : "transparent", color: (m === "Multi") === multiMode ? "#f5c842" : "#6b7280", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: 1 }}>
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               {/* Confluence Score */}
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1467,10 +1558,86 @@ export default function GCJournal() {
               <span style={{ fontSize: 9, color: "#4b5563", letterSpacing: 1 }}>CONTRIBUTES TO CONFLUENCE SCORE</span>
             </div>
 
+            {/* ── MULTI-POSITION ROWS ── */}
+            {multiMode && !editId && (
+              <div style={{ marginTop: 18, background: "#070b12", border: "1px solid #f5c84233", borderRadius: 12, padding: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#f5c842", letterSpacing: 2, textTransform: "uppercase" }}>Position Rows</div>
+                    <div style={{ fontSize: 10, color: "#4b5563", marginTop: 3 }}>Each row = one separate trade. Shared fields above apply to all.</div>
+                  </div>
+                  <button onClick={() => setMultiPositions(p => [...p, { entryDatetime: "", exitDatetime: "", entryPrice: "", maePrice: "", notes: "" }])}
+                    style={{ padding: "6px 14px", borderRadius: 7, border: "1px solid #f5c84244", background: "rgba(245,200,66,0.08)", color: "#f5c842", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                    + Add Row
+                  </button>
+                </div>
+
+                {/* Column headers */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px 120px 1fr 32px", gap: 8, marginBottom: 6 }}>
+                  {["Entry Time (ET)", "Exit Time (ET)", "Entry Price", "MAE Price", "Notes (optional)", ""].map((h, i) => (
+                    <div key={i} style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase" }}>{h}</div>
+                  ))}
+                </div>
+
+                {multiPositions.map((pos, idx) => {
+                  // Auto-calc points and outcome for this row
+                  const ep = parseFloat(pos.entryPrice);
+                  const sl = parseFloat(form.stopLoss);
+                  const tp = parseFloat(form.takeProfit);
+                  const dir = form.direction;
+                  let rowPoints = "", rowOutcome = "";
+                  if (!isNaN(ep) && !isNaN(sl) && !isNaN(tp) && dir) {
+                    rowPoints = calcPointsFromOutcome(ep, sl, tp, dir, dir === "Long" ? (tp > ep ? "Win" : "Loss") : (tp < ep ? "Win" : "Loss"));
+                    rowOutcome = dir === "Long" ? (tp > ep ? "Win" : "Loss") : (tp < ep ? "Win" : "Loss");
+                  }
+                  const maeP = parseFloat(pos.maePrice);
+                  let rowMAE = "";
+                  if (!isNaN(maeP) && !isNaN(ep) && dir) {
+                    const raw = dir === "Long" ? (ep - maeP) * 10 : (maeP - ep) * 10;
+                    rowMAE = raw > 0 ? raw.toFixed(1) : "0.0";
+                  }
+                  return (
+                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 120px 120px 1fr 32px", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                      <input type="datetime-local" value={pos.entryDatetime}
+                        onChange={e => setMultiPositions(p => p.map((r, i) => i === idx ? { ...r, entryDatetime: e.target.value } : r))}
+                        style={inp} />
+                      <input type="datetime-local" value={pos.exitDatetime}
+                        onChange={e => setMultiPositions(p => p.map((r, i) => i === idx ? { ...r, exitDatetime: e.target.value } : r))}
+                        style={inp} />
+                      <input type="number" step="0.1" value={pos.entryPrice} placeholder="Entry"
+                        onChange={e => setMultiPositions(p => p.map((r, i) => i === idx ? { ...r, entryPrice: e.target.value } : r))}
+                        style={inp} />
+                      <input type="number" step="0.1" value={pos.maePrice} placeholder="MAE low/high"
+                        onChange={e => setMultiPositions(p => p.map((r, i) => i === idx ? { ...r, maePrice: e.target.value } : r))}
+                        style={inp} />
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <input value={pos.notes} placeholder="Optional note for this position"
+                          onChange={e => setMultiPositions(p => p.map((r, i) => i === idx ? { ...r, notes: e.target.value } : r))}
+                          style={{ ...inp, flex: 1 }} />
+                        {rowPoints && <span style={{ fontSize: 10, fontWeight: 700, color: parseFloat(rowPoints) >= 0 ? "#00e5a0" : "#ff4d6d", whiteSpace: "nowrap" }}>{rowPoints}pts</span>}
+                        {rowMAE && <span style={{ fontSize: 10, color: "#a78bfa", whiteSpace: "nowrap" }}>MAE:{rowMAE}</span>}
+                      </div>
+                      <button onClick={() => setMultiPositions(p => p.filter((_, i) => i !== idx))} disabled={multiPositions.length <= 1}
+                        style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #ff4d6d33", background: "transparent", color: "#ff4d6d", fontSize: 14, cursor: multiPositions.length <= 1 ? "not-allowed" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", opacity: multiPositions.length <= 1 ? 0.3 : 1 }}>
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+
+                <div style={{ marginTop: 12, fontSize: 10, color: "#4b5563" }}>
+                  {multiPositions.filter(p => p.entryPrice && p.entryDatetime).length} of {multiPositions.length} rows ready to save
+                </div>
+              </div>
+            )}
+
+            {/* ── NOTES (single mode only, multi has per-row notes) ── */}
+            {!multiMode && (
             <div style={{ marginTop: 14 }}>
               <label style={lbl}>Notes / Observations</label>
               <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={3} placeholder="Context, confluences, HTF alignment, what you would do differently..." style={{ ...inp, resize: "vertical", lineHeight: 1.6 }} />
             </div>
+            )}
 
             <div style={{ marginTop: 14 }}>
               <label style={lbl}>Chart Screenshots ({form.screenshots?.length || 0} added)</label>
@@ -1547,8 +1714,8 @@ export default function GCJournal() {
             })()}
 
             <div style={{ marginTop: 20, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <button onClick={saveTrade} disabled={syncing} style={{ padding: "11px 28px", background: syncing ? "#2a2f3a" : "linear-gradient(135deg, #f5c842, #ff9a3c)", borderRadius: 10, border: "none", color: syncing ? "#6b7280" : "#070b12", fontWeight: 700, fontSize: 12, cursor: syncing ? "not-allowed" : "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
-                {syncing ? "Saving..." : editId ? "Update Trade" : "Save Trade"}
+              <button onClick={multiMode && !editId ? saveMultiTrades : saveTrade} disabled={syncing} style={{ padding: "11px 28px", background: syncing ? "#2a2f3a" : "linear-gradient(135deg, #f5c842, #ff9a3c)", borderRadius: 10, border: "none", color: syncing ? "#6b7280" : "#070b12", fontWeight: 700, fontSize: 12, cursor: syncing ? "not-allowed" : "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
+                {syncing ? "Saving..." : editId ? "Update Trade" : multiMode ? `Save ${multiPositions.filter(p => p.entryPrice && p.entryDatetime).length || "All"} Positions` : "Save Trade"}
               </button>
               {editId && <button onClick={resetForm} style={{ padding: "11px 20px", background: "transparent", borderRadius: 10, border: "1px solid #2a2f3a", color: "#8b949e", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>}
               {syncError && <span style={{ fontSize: 11, color: "#ff4d6d" }}>{syncError}</span>}
