@@ -624,9 +624,9 @@ export default function GCJournal() {
   });
   const [expenses, setExpenses]         = useState(() => {
     try { return JSON.parse(localStorage.getItem("gc_expenses") || JSON.stringify([
-      { id: 1, name: "TopstepX 150k Account (Activation)", amount: 167, startMonth: "2025-04", monthly: true },
-      { id: 2, name: "TopstepX 50k Account (Trade Copier)", amount: 50, startMonth: "2025-04", monthly: true },
-      { id: 3, name: "TopstepX API Subscription", amount: 29, startMonth: "2025-05", monthly: true },
+      { id: 1, name: "TopstepX 150k Account (Activation)", amount: 167, startMonth: "2026-04", monthly: true },
+      { id: 2, name: "TopstepX 50k Account (Trade Copier)", amount: 50, startMonth: "2026-04", monthly: true },
+      { id: 3, name: "TopstepX API Subscription", amount: 29, startMonth: "2026-05", monthly: true },
     ])); } catch(e) { return []; }
   });
   const [newPayout, setNewPayout]       = useState({ date: "", amount: "", account: "", notes: "" });
@@ -652,17 +652,18 @@ export default function GCJournal() {
 
   // Calculate total expense for an item up to today
   const calcExpenseTotal = (exp) => {
+    if (!exp.monthly) return exp.amount;
     const start = new Date(exp.startMonth + "-01");
     const now   = new Date();
-    if (!exp.monthly) return exp.amount;
-    const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1;
-    return exp.amount * Math.max(1, months);
+    const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+    return exp.amount * Math.max(1, months + 1);
   };
   const calcExpenseMonths = (exp) => {
+    if (!exp.monthly) return 1;
     const start = new Date(exp.startMonth + "-01");
     const now   = new Date();
-    if (!exp.monthly) return 1;
-    return Math.max(1, (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1);
+    const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+    return Math.max(1, months + 1);
   };
   const [syncStatus, setSyncStatus]       = useState(null); // {synced, from, to, error}
   const [syncRunning, setSyncRunning]     = useState(false);
