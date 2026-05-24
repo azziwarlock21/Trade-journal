@@ -645,11 +645,9 @@ export default function GCJournal() {
   }, []);
 
   // ── TopstepX manual sync trigger ──────────────────────────────────────────
-  const triggerSync = useCallback(async () => {
+  const triggerSync = useCallback(async (resetSync = false) => {
     setSyncRunning(true); setSyncStatus(null);
     try {
-      // VITE_CRON_SECRET must be set in Vercel env vars AND in your .env file
-      // as VITE_CRON_SECRET=your-secret (Vite exposes VITE_ prefixed vars to browser)
       const secret = import.meta.env.VITE_CRON_SECRET || "";
       const base   = window.location.origin;
       const res    = await fetch(`${base}/api/sync-topstepx`, {
@@ -658,6 +656,7 @@ export default function GCJournal() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${secret}`,
         },
+        body: JSON.stringify(resetSync ? { resetSync: true } : {}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Sync failed");
@@ -1243,8 +1242,11 @@ export default function GCJournal() {
           <label style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
             CSV ↑<input ref={importRef} type="file" accept=".csv" onChange={importCSV} style={{ display: "none" }} />
           </label>
-          <button onClick={triggerSync} disabled={syncRunning} title="Sync trades from TopstepX" style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${syncRunning ? "#2a2f3a" : syncStatus?.error ? "#ff4d6d44" : syncStatus?.synced > 0 ? "#00e5a044" : "#2a2f3a"}`, background: syncRunning ? "transparent" : syncStatus?.synced > 0 ? "rgba(0,229,160,0.06)" : "transparent", color: syncRunning ? "#6b7280" : syncStatus?.error ? "#ff4d6d" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: syncRunning ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+          <button onClick={() => triggerSync(false)} disabled={syncRunning} title="Sync new trades from TopstepX" style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${syncRunning ? "#2a2f3a" : syncStatus?.error ? "#ff4d6d44" : syncStatus?.synced > 0 ? "#00e5a044" : "#2a2f3a"}`, background: syncRunning ? "transparent" : syncStatus?.synced > 0 ? "rgba(0,229,160,0.06)" : "transparent", color: syncRunning ? "#6b7280" : syncStatus?.error ? "#ff4d6d" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: syncRunning ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
             {syncRunning ? "Syncing..." : "TSX ↓"}
+          </button>
+          <button onClick={() => { if (window.confirm("This clears the sync history and re-imports ALL trades from TopstepX. Continue?")) triggerSync(true); }} disabled={syncRunning} title="Reset and re-import all TopstepX trades" style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #a78bfa44", background: "transparent", color: syncRunning ? "#6b7280" : "#a78bfa", fontSize: 10, fontWeight: 700, cursor: syncRunning ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+            TSX Full
           </button>
           <select value={userTz} onChange={e => { setUserTz(e.target.value); setSessionOverridden(false); }} style={{ background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "7px 10px", color: "#f5c842", fontSize: 10, fontFamily: "inherit" }}>
             {TIMEZONES.map(t => <option key={t.tz} value={t.tz}>{t.label}</option>)}
