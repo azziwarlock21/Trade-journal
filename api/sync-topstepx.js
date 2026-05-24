@@ -200,11 +200,22 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   // Validate cron secret to prevent unauthorized triggers
-  const authHeader = req.headers.authorization || "";
-  const cronSecret = process.env.CRON_SECRET || "";
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+ const cronSecret = process.env.CRON_SECRET || "";
+ 
+ // Allow Vercel cron jobs automatically
+ const isVercelCron = req.headers["x-vercel-cron"];
+ 
+ // Optional manual auth
+ const authHeader = req.headers.authorization || "";
+ 
+ if (
+   !isVercelCron &&
+   cronSecret &&
+   authHeader !== `Bearer ${cronSecret}`
+ ) {
+   return res.status(401).json({ error: "Unauthorized" });
+}
+
 
   try {
     // 1. Authenticate with TopstepX
