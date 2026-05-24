@@ -2172,7 +2172,7 @@ export default function GCJournal() {
       </div>
     </div>
   );
-}});
+});
 
 const fromRow = (r) => ({
   id: r.id,
