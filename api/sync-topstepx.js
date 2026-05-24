@@ -31,11 +31,33 @@ async function sbFetch(path, opts = {}) {
 async function tsxAuth() {
   const res = await fetch(`${TOPSTEPX_API}/api/Auth/loginKey`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "accept": "text/plain" },
-    body: JSON.stringify({ userName: TSX_USERNAME, apiKey: TSX_API_KEY }),
+    headers: {
+      "Content-Type": "application/json",
+      "accept": "application/json"
+    },
+    body: JSON.stringify({
+      userName: TSX_USERNAME,
+      apiKey: TSX_API_KEY
+    }),
   });
-  const data = await res.json();
-  if (!data.success) throw new Error(`TopstepX auth failed: ${data.errorMessage}`);
+
+  const text = await res.text();
+
+  console.log("TopstepX auth raw response:", text);
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid JSON response: ${text}`);
+  }
+
+  if (!data.success) {
+    throw new Error(
+      `TopstepX auth failed: ${data.errorMessage || text}`
+    );
+  }
+
   return data.token;
 }
 
