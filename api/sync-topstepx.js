@@ -29,6 +29,9 @@ async function sbFetch(path, opts = {}) {
 
 // ── TopstepX helpers ──────────────────────────────────────────────────────────
 async function tsxAuth() {
+  console.log("USERNAME:", JSON.stringify(TSX_USERNAME));
+console.log("API KEY:", JSON.stringify(TSX_API_KEY));
+
   const res = await fetch(`${TOPSTEPX_API}/api/Auth/loginKey`, {
     method: "POST",
     headers: {
