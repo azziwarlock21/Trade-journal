@@ -177,12 +177,15 @@ function pairTrades(fills) {
 }
 
 // ── Sync log helpers ──────────────────────────────────────────────────────────
-async function getLastSyncTime() {
+async function getLastSyncTime(forceFrom) {
+  // Allow manual override via request body
+  if (forceFrom) return new Date(forceFrom);
   try {
     const res = await sbFetch(`/sync_log?select=last_sync&id=eq.topstepx&limit=1`);
     if (res && res[0] && res[0].last_sync) return new Date(res[0].last_sync);
-  } catch(e) { console.log("sync_log not found, using 7-day default"); }
-  return new Date(Date.now() - 7 * 24 * 3600 * 1000);
+  } catch(e) { console.log("sync_log not found, using full lookback"); }
+  // Default: 1 year back to catch all historical trades
+  return new Date(Date.now() - 365 * 24 * 3600 * 1000);
 }
 
 async function updateLastSyncTime(time) {
@@ -218,9 +221,25 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Support manual overrides from request body:
+    // { "resetSync": true }  — clears sync_log so full history is fetched
+    // { "forceFrom": "2024-01-01T00:00:00.000Z" }  — fetch from specific date
+    const body = req.body || {};
+    const { resetSync, forceFrom } = body;
+
+    if (resetSync) {
+      console.log("resetSync requested — clearing sync_log");
+      try {
+        await sbFetch(`/sync_log?id=eq.topstepx`, {
+          method: "DELETE",
+          headers: { "Prefer": "return=minimal" },
+        });
+      } catch(e) { console.log("sync_log clear skipped:", e.message); }
+    }
+
     const token     = await tsxAuth();
     const accountId = await tsxGetAccountId(token);
-    const syncFrom  = await getLastSyncTime();
+    const syncFrom  = await getLastSyncTime(forceFrom);
     const syncTo    = new Date();
 
     console.log(`Using account ID: ${accountId}`);
