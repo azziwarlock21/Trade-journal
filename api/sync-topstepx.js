@@ -42,8 +42,39 @@ async function tsxAuth() {
   return data.token;
 }
 
+// ── Fetch active account ID dynamically ──────────────────────────────────────
+// The API uses internal numeric IDs, not the account numbers shown in the UI
+async function tsxGetAccountId(token) {
+  // If account ID is explicitly set in env, use it (must be the internal numeric ID)
+  // Otherwise fetch it from the API
+  const res = await fetch(`${TOPSTEPX_API}/api/Account/search`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "accept": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: JSON.stringify({ onlyActiveAccounts: true }),
+  });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch(e) { throw new Error(`TopstepX account search bad response: ${text}`); }
+  if (!data.success || !data.accounts || !data.accounts.length) {
+    throw new Error(`TopstepX no active accounts found: ${JSON.stringify(data)}`);
+  }
+  // Log all accounts for debugging
+  console.log("TopstepX accounts:", JSON.stringify(data.accounts.map(a => ({ id: a.id, name: a.name, balance: a.balance }))));
+  // If env var set, find matching account; otherwise use first active one
+  if (TSX_ACCOUNT_ID) {
+    const match = data.accounts.find(a => String(a.id) === String(TSX_ACCOUNT_ID) || a.name === TSX_ACCOUNT_ID);
+    if (match) return match.id;
+    console.warn(`TOPSTEPX_ACCOUNT_ID "${TSX_ACCOUNT_ID}" not found in accounts, using first active account`);
+  }
+  return data.accounts[0].id;
+}
+
 // ── TopstepX fetch trades ─────────────────────────────────────────────────────
-async function tsxFetchTrades(token, startTimestamp, endTimestamp) {
+async function tsxFetchTrades(token, accountId, startTimestamp, endTimestamp) {
   const res = await fetch(`${TOPSTEPX_API}/api/Trade/search`, {
     method: "POST",
     headers: {
@@ -51,11 +82,7 @@ async function tsxFetchTrades(token, startTimestamp, endTimestamp) {
       "accept": "application/json",
       "Authorization": `Bearer ${token}`,
     },
-    body: JSON.stringify({
-      accountId: TSX_ACCOUNT_ID,  // keep as string — API may want string or number
-      startTimestamp,
-      endTimestamp,
-    }),
+    body: JSON.stringify({ accountId, startTimestamp, endTimestamp }),
   });
   const text = await res.text();
   let data;
@@ -191,13 +218,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const token    = await tsxAuth();
-    const syncFrom = await getLastSyncTime();
-    const syncTo   = new Date();
+    const token     = await tsxAuth();
+    const accountId = await tsxGetAccountId(token);
+    const syncFrom  = await getLastSyncTime();
+    const syncTo    = new Date();
 
+    console.log(`Using account ID: ${accountId}`);
     console.log(`Syncing ${syncFrom.toISOString()} → ${syncTo.toISOString()}`);
 
-    const fills = await tsxFetchTrades(token, syncFrom.toISOString(), syncTo.toISOString());
+    const fills = await tsxFetchTrades(token, accountId, syncFrom.toISOString(), syncTo.toISOString());
     console.log(`${fills.length} fills fetched`);
 
     if (!fills.length) {
