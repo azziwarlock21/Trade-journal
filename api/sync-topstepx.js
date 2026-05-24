@@ -233,7 +233,7 @@ export default async function handler(req, res) {
  if (
    !isVercelCron &&
    cronSecret &&
-   authHeader !== `Bearer ${cronSecret}`
+   authHeader !== `Bearer ${journal}`
  ) {
    return res.status(401).json({ error: "Unauthorized" });
 }
