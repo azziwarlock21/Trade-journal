@@ -618,7 +618,52 @@ export default function GCJournal() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError]     = useState("");
 
-  // ── TopstepX Sync state ───────────────────────────────────────────────────
+  // ── Payouts & Expenses state ───────────────────────────────────────────────
+  const [payouts, setPayouts]           = useState(() => {
+    try { return JSON.parse(localStorage.getItem("gc_payouts") || "[]"); } catch(e) { return []; }
+  });
+  const [expenses, setExpenses]         = useState(() => {
+    try { return JSON.parse(localStorage.getItem("gc_expenses") || JSON.stringify([
+      { id: 1, name: "TopstepX 150k Account (Activation)", amount: 167, startMonth: "2025-04", monthly: true },
+      { id: 2, name: "TopstepX 50k Account (Trade Copier)", amount: 50, startMonth: "2025-04", monthly: true },
+      { id: 3, name: "TopstepX API Subscription", amount: 29, startMonth: "2025-05", monthly: true },
+    ])); } catch(e) { return []; }
+  });
+  const [newPayout, setNewPayout]       = useState({ date: "", amount: "", account: "", notes: "" });
+  const [newExpense, setNewExpense]      = useState({ name: "", amount: "", startMonth: "", monthly: true });
+
+  const savePayout = () => {
+    if (!newPayout.date || !newPayout.amount) { alert("Fill in date and amount."); return; }
+    const updated = [...payouts, { ...newPayout, id: Date.now(), amount: parseFloat(newPayout.amount) }];
+    setPayouts(updated);
+    localStorage.setItem("gc_payouts", JSON.stringify(updated));
+    setNewPayout({ date: "", amount: "", account: "", notes: "" });
+  };
+  const deletePayout = (id) => { const u = payouts.filter(p => p.id !== id); setPayouts(u); localStorage.setItem("gc_payouts", JSON.stringify(u)); };
+
+  const saveExpense = () => {
+    if (!newExpense.name || !newExpense.amount || !newExpense.startMonth) { alert("Fill in name, amount, and start month."); return; }
+    const updated = [...expenses, { ...newExpense, id: Date.now(), amount: parseFloat(newExpense.amount) }];
+    setExpenses(updated);
+    localStorage.setItem("gc_expenses", JSON.stringify(updated));
+    setNewExpense({ name: "", amount: "", startMonth: "", monthly: true });
+  };
+  const deleteExpense = (id) => { const u = expenses.filter(e => e.id !== id); setExpenses(u); localStorage.setItem("gc_expenses", JSON.stringify(u)); };
+
+  // Calculate total expense for an item up to today
+  const calcExpenseTotal = (exp) => {
+    const start = new Date(exp.startMonth + "-01");
+    const now   = new Date();
+    if (!exp.monthly) return exp.amount;
+    const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1;
+    return exp.amount * Math.max(1, months);
+  };
+  const calcExpenseMonths = (exp) => {
+    const start = new Date(exp.startMonth + "-01");
+    const now   = new Date();
+    if (!exp.monthly) return 1;
+    return Math.max(1, (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1);
+  };
   const [syncStatus, setSyncStatus]       = useState(null); // {synced, from, to, error}
   const [syncRunning, setSyncRunning]     = useState(false);
 
@@ -1356,7 +1401,7 @@ export default function GCJournal() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {["journal","log","analytics","rules","calc","coach"].map(v => (
+          {["journal","log","analytics","rules","calc","coach","payouts","expenses"].map(v => (
             <button key={v} onClick={() => setView(v)} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${view === v ? "#f5c842" : "#2a2f3a"}`, background: view === v ? "rgba(245,200,66,0.1)" : "transparent", color: view === v ? "#f5c842" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
               {v === "calc" ? "Position" : v === "coach" ? "AI Coach" : v}
             </button>
@@ -2458,6 +2503,141 @@ export default function GCJournal() {
                   <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.9, whiteSpace: "pre-wrap" }}>{reviewResult}</div>
                 </div>
               )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ═══ PAYOUTS ═══ */}
+      {!loading && view === "payouts" && (() => {
+        const totalPaidOut = payouts.reduce((s, p) => s + (p.amount || 0), 0);
+        const totalExpenses = expenses.reduce((s, e) => s + calcExpenseTotal(e), 0);
+        const net = totalPaidOut - totalExpenses;
+        const cinp = { width: "100%", background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "8px 12px", color: "#e6edf3", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };
+        return (
+          <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 20px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 20 }}>Payouts</div>
+
+            {/* Summary cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px,1fr))", gap: 12, marginBottom: 24 }}>
+              {[
+                ["Total Withdrawn", `$${totalPaidOut.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, "#00e5a0"],
+                ["Total Expenses", `$${totalExpenses.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, "#ff4d6d"],
+                ["Net Profit", `${net >= 0 ? "+" : ""}$${Math.abs(net).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`, net >= 0 ? "#00e5a0" : "#ff4d6d"],
+                ["Payouts Count", payouts.length, "#f5c842"],
+              ].map(([label, val, color]) => (
+                <div key={label} style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: "16px 18px" }}>
+                  <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color }}>{val}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Add payout */}
+            <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 20, marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#e6edf3", letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>Log a Payout</div>
+              <div style={{ display: "grid", gridTemplateColumns: "160px 140px 1fr 1fr auto", gap: 10, alignItems: "end" }}>
+                <div><label style={lbl}>Date</label><input type="date" value={newPayout.date} onChange={e => setNewPayout(p => ({...p, date: e.target.value}))} style={cinp} /></div>
+                <div><label style={lbl}>Amount ($)</label><input type="number" step="0.01" value={newPayout.amount} onChange={e => setNewPayout(p => ({...p, amount: e.target.value}))} placeholder="1250.00" style={cinp} /></div>
+                <div><label style={lbl}>Account</label><input value={newPayout.account} onChange={e => setNewPayout(p => ({...p, account: e.target.value}))} placeholder="e.g. 150k TopstepX" style={cinp} /></div>
+                <div><label style={lbl}>Notes</label><input value={newPayout.notes} onChange={e => setNewPayout(p => ({...p, notes: e.target.value}))} placeholder="Optional" style={cinp} /></div>
+                <button onClick={savePayout} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#f5c842,#ff9a3c)", color: "#070b12", fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>+ Add</button>
+              </div>
+            </div>
+
+            {/* Payout list */}
+            {payouts.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#4b5563", fontSize: 12 }}>No payouts logged yet.</div>
+            ) : (
+              <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, overflow: "hidden" }}>
+                {[...payouts].sort((a,b) => b.date > a.date ? 1 : -1).map((p, i) => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderBottom: i < payouts.length-1 ? "1px solid #1f2937" : "none", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, color: "#6b7280", minWidth: 90 }}>{p.date}</span>
+                    <span style={{ fontSize: 16, fontWeight: 700, color: "#00e5a0" }}>${parseFloat(p.amount).toLocaleString("en-US",{minimumFractionDigits:2})}</span>
+                    {p.account && <span style={{ fontSize: 11, color: "#9ca3af" }}>{p.account}</span>}
+                    {p.notes && <span style={{ fontSize: 11, color: "#4b5563" }}>{p.notes}</span>}
+                    <button onClick={() => deletePayout(p.id)} style={{ marginLeft: "auto", fontSize: 10, color: "#ff4d6d", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ═══ EXPENSES ═══ */}
+      {!loading && view === "expenses" && (() => {
+        const totalExpenses = expenses.reduce((s, e) => s + calcExpenseTotal(e), 0);
+        const cinp = { width: "100%", background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "8px 12px", color: "#e6edf3", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };
+        const now = new Date();
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+        return (
+          <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 20px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 8 }}>Expenses</div>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 20 }}>Tracks recurring and one-time costs. Totals update automatically each month.</div>
+
+            {/* Total card */}
+            <div style={{ background: "#0d1117", border: "1px solid #ff4d6d33", borderRadius: 12, padding: "18px 22px", marginBottom: 20, display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 6 }}>Total Spent to Date</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: "#ff4d6d" }}>${totalExpenses.toLocaleString("en-US",{minimumFractionDigits:2})}</div>
+              </div>
+              <div style={{ borderLeft: "1px solid #1f2937", paddingLeft: 24 }}>
+                <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 6 }}>Monthly Recurring</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#f5c842" }}>${expenses.filter(e=>e.monthly).reduce((s,e)=>s+e.amount,0).toFixed(2)}/mo</div>
+              </div>
+              <div style={{ borderLeft: "1px solid #1f2937", paddingLeft: 24 }}>
+                <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 6 }}>Active Items</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#e6edf3" }}>{expenses.length}</div>
+              </div>
+            </div>
+
+            {/* Expense list */}
+            {expenses.length > 0 && (
+              <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, overflow: "hidden", marginBottom: 20 }}>
+                {expenses.map((e, i) => {
+                  const months = calcExpenseMonths(e);
+                  const total  = calcExpenseTotal(e);
+                  const startLabel = new Date(e.startMonth + "-02").toLocaleString("en-US",{month:"short",year:"numeric"});
+                  return (
+                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", borderBottom: i < expenses.length-1 ? "1px solid #1f2937" : "none", flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e6edf3", marginBottom: 3 }}>{e.name}</div>
+                        <div style={{ fontSize: 10, color: "#6b7280" }}>
+                          Started {startLabel} · {e.monthly ? `${months} month${months!==1?"s":""}` : "one-time"}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 11, color: "#9ca3af" }}>${e.amount.toFixed(2)}{e.monthly ? "/mo" : ""}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#ff4d6d" }}>${total.toLocaleString("en-US",{minimumFractionDigits:2})} total</div>
+                      </div>
+                      <button onClick={() => deleteExpense(e.id)} style={{ fontSize: 10, color: "#ff4d6d", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Remove</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Add expense */}
+            <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#e6edf3", letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>Add Expense</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 140px auto auto", gap: 10, alignItems: "end" }}>
+                <div><label style={lbl}>Name</label><input value={newExpense.name} onChange={e => setNewExpense(p=>({...p,name:e.target.value}))} placeholder="e.g. TopstepX API" style={cinp} /></div>
+                <div><label style={lbl}>Amount ($)</label><input type="number" step="0.01" value={newExpense.amount} onChange={e => setNewExpense(p=>({...p,amount:e.target.value}))} placeholder="29.00" style={cinp} /></div>
+                <div><label style={lbl}>Start Month</label><input type="month" value={newExpense.startMonth} onChange={e => setNewExpense(p=>({...p,startMonth:e.target.value}))} style={cinp} /></div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <label style={lbl}>Type</label>
+                  <div style={{ display: "flex", gap: 0, borderRadius: 7, overflow: "hidden", border: "1px solid #2a2f3a" }}>
+                    {["Monthly","One-time"].map(t => (
+                      <button key={t} onClick={() => setNewExpense(p=>({...p,monthly:t==="Monthly"}))}
+                        style={{ padding: "8px 12px", border: "none", background: (t==="Monthly") === newExpense.monthly ? "rgba(245,200,66,0.15)" : "transparent", color: (t==="Monthly") === newExpense.monthly ? "#f5c842" : "#6b7280", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={saveExpense} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#f5c842,#ff9a3c)", color: "#070b12", fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", alignSelf: "end" }}>+ Add</button>
+              </div>
             </div>
           </div>
         );
