@@ -8,7 +8,7 @@ const SUPABASE_URL   = process.env.SUPABASE_URL;
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_KEY;
 const TSX_USERNAME   = process.env.TOPSTEPX_USERNAME;
 const TSX_API_KEY    = process.env.TOPSTEPX_API_KEY;
-const TSX_ACCOUNT_ID = process.env.TOPSTEPX_ACCOUNT_ID; // keep as string
+const TSX_ACCOUNT_ID = process.env.TOPSTEPX_ACCOUNT_ID;
 const CRON_SECRET    = process.env.CRON_SECRET || "";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
@@ -37,72 +37,57 @@ async function tsxAuth() {
   });
   const text = await res.text();
   let data;
-  try { data = JSON.parse(text); } catch(e) { throw new Error(`TopstepX auth bad response: ${text}`); }
+  try { data = JSON.parse(text); } catch(e) { throw new Error(`TopstepX auth parse failed: ${text.slice(0,200)}`); }
   if (!data.token) throw new Error(`TopstepX auth failed: ${JSON.stringify(data)}`);
   return data.token;
 }
 
-// ── Fetch active account ID dynamically ──────────────────────────────────────
-// The API uses internal numeric IDs, not the account numbers shown in the UI
+// ── Fetch active account ID ───────────────────────────────────────────────────
 async function tsxGetAccountId(token) {
-  // If account ID is explicitly set in env, use it (must be the internal numeric ID)
-  // Otherwise fetch it from the API
   const res = await fetch(`${TOPSTEPX_API}/api/Account/search`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "accept": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
+    headers: { "Content-Type": "application/json", "accept": "application/json", "Authorization": `Bearer ${token}` },
     body: JSON.stringify({ onlyActiveAccounts: true }),
   });
   const text = await res.text();
   let data;
-  try { data = JSON.parse(text); } catch(e) { throw new Error(`TopstepX account search bad response: ${text}`); }
-  if (!data.success || !data.accounts || !data.accounts.length) {
-    throw new Error(`TopstepX no active accounts found: ${JSON.stringify(data)}`);
-  }
-  // Log all accounts for debugging
-  console.log("TopstepX accounts:", JSON.stringify(data.accounts.map(a => ({ id: a.id, name: a.name, balance: a.balance }))));
-  // If env var set, find matching account; otherwise use first active one
+  try { data = JSON.parse(text); } catch(e) { throw new Error(`TopstepX account search parse failed: ${text.slice(0,200)}`); }
+  if (!data.success || !data.accounts?.length) throw new Error(`TopstepX no active accounts: ${JSON.stringify(data)}`);
+  console.log("Accounts:", JSON.stringify(data.accounts.map(a => ({ id: a.id, name: a.name }))));
   if (TSX_ACCOUNT_ID) {
     const match = data.accounts.find(a => String(a.id) === String(TSX_ACCOUNT_ID) || a.name === TSX_ACCOUNT_ID);
     if (match) return match.id;
-    console.warn(`TOPSTEPX_ACCOUNT_ID "${TSX_ACCOUNT_ID}" not found in accounts, using first active account`);
+    console.warn(`TOPSTEPX_ACCOUNT_ID "${TSX_ACCOUNT_ID}" not matched — using first account`);
   }
   return data.accounts[0].id;
 }
 
-// ── TopstepX fetch trades ─────────────────────────────────────────────────────
+// ── Fetch fills ───────────────────────────────────────────────────────────────
 async function tsxFetchTrades(token, accountId, startTimestamp, endTimestamp) {
   const res = await fetch(`${TOPSTEPX_API}/api/Trade/search`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "accept": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
+    headers: { "Content-Type": "application/json", "accept": "application/json", "Authorization": `Bearer ${token}` },
     body: JSON.stringify({ accountId, startTimestamp, endTimestamp }),
   });
   const text = await res.text();
   let data;
-  try { data = JSON.parse(text); } catch(e) { throw new Error(`TopstepX trade fetch bad response: ${text}`); }
-  if (!res.ok || data.success === false) throw new Error(`TopstepX trade fetch: ${JSON.stringify(data)}`);
+  try { data = JSON.parse(text); } catch(e) { throw new Error(`TopstepX trade search parse failed: ${text.slice(0,200)}`); }
+  if (!res.ok || data.success === false) throw new Error(`TopstepX trade search: ${JSON.stringify(data)}`);
   return data.trades || [];
 }
 
-// ── Pair fills into round trips ───────────────────────────────────────────────
+// ── Timezone helpers ──────────────────────────────────────────────────────────
 function isDST(date) {
-  const jan = new Date(date.getFullYear(), 0, 1);
-  const jul = new Date(date.getFullYear(), 6, 1);
-  return date.getTimezoneOffset() < Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+  const jan = new Date(date.getFullYear(), 0, 1).getTimezoneOffset();
+  const jul = new Date(date.getFullYear(), 6, 1).getTimezoneOffset();
+  return date.getTimezoneOffset() < Math.max(jan, jul);
 }
 
 function toET(isoStr) {
   const d = new Date(isoStr);
   const offset = isDST(d) ? -4 : -5;
   const et = new Date(d.getTime() + offset * 3600000);
-  return et.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
+  return et.toISOString().slice(0, 16);
 }
 
 function getSession(isoStr) {
@@ -117,45 +102,102 @@ function getSession(isoStr) {
   return "After Hours";
 }
 
+// ── Net-position pairing ──────────────────────────────────────────────────────
+// TopstepX: buy fills open longs / close shorts. Sell fills open shorts / close longs.
+// Track net position. When it returns to 0 → complete round trip.
+// Use integer arithmetic to avoid floating point drift.
 function pairTrades(fills) {
   const sorted = [...fills]
-    .filter(f => !f.voided)
+    .filter(f => !f.voided && f.size > 0)
     .sort((a, b) => new Date(a.creationTimestamp) - new Date(b.creationTimestamp));
 
   const roundTrips = [];
-  const openLegs = [];
+  let netPos    = 0;   // integer, + = long, - = short
+  let openFills = [];
+  let closeFills = [];
+  let totalPnL  = 0;
+  let totalFees = 0;
 
   for (const fill of sorted) {
-    const hasClose = fill.profitAndLoss !== null && fill.profitAndLoss !== undefined;
-    if (!hasClose) {
-      openLegs.push(fill);
-    } else {
-      const openLeg = openLegs.shift();
-      if (!openLeg) continue;
+    const qty       = Math.round(fill.size);   // integer contracts
+    const signedQty = fill.side === 0 ? qty : -qty;
 
-      const direction  = openLeg.side === 0 ? "Long" : "Short";
-      const entryPrice = openLeg.price;
-      const lotSize    = openLeg.size;
-      const pnl        = fill.profitAndLoss;
-      const fees       = (openLeg.fees || 0) + (fill.fees || 0);
-      const points     = lotSize > 0 ? (pnl / (lotSize * 100)).toFixed(1) : null;
-      const outcome    = parseFloat(points) > 0 ? "Win" : parseFloat(points) < 0 ? "Loss" : "Breakeven";
-      const tsxId      = `${openLeg.id}_${fill.id}`;
+    // Classify as opening or closing
+    const isOpen = netPos === 0 ||
+                   (netPos > 0 && fill.side === 0) ||
+                   (netPos < 0 && fill.side === 1);
+
+    if (isOpen) openFills.push(fill);
+    else        closeFills.push(fill);
+
+    netPos    += signedQty;
+    totalPnL  += fill.profitAndLoss || 0;
+    totalFees += fill.fees || 0;
+
+    // Round trip complete
+    if (netPos === 0 && openFills.length > 0) {
+      const direction   = openFills[0].side === 0 ? "Long" : "Short";
+      const totalOpenQty = openFills.reduce((s, f) => s + Math.round(f.size), 0);
+      const entryVWAP   = openFills.reduce((s, f) => s + f.price * Math.round(f.size), 0) / totalOpenQty;
+
+      const totalCloseQty = closeFills.reduce((s, f) => s + Math.round(f.size), 0);
+      const exitVWAP = totalCloseQty > 0
+        ? closeFills.reduce((s, f) => s + f.price * Math.round(f.size), 0) / totalCloseQty
+        : null;
+
+      const entryTime = openFills[0].creationTimestamp;
+      const exitTime  = closeFills.length > 0
+        ? closeFills[closeFills.length - 1].creationTimestamp
+        : openFills[openFills.length - 1].creationTimestamp;
+
+      // MAE extreme price — worst fill price against position among close fills
+      let maePrice = null;
+      if (closeFills.length > 0) {
+        maePrice = direction === "Long"
+          ? Math.min(...closeFills.map(f => f.price))
+          : Math.max(...closeFills.map(f => f.price));
+      }
+
+      // MAE in points (how far against us the worst fill was)
+      let mae = null;
+      if (maePrice !== null) {
+        const raw = direction === "Long"
+          ? (entryVWAP - maePrice) * 10
+          : (maePrice - entryVWAP) * 10;
+        mae = raw > 0 ? raw.toFixed(1) : "0.0";
+      }
+
+      // Points from actual P&L
+      const points = totalOpenQty > 0
+        ? (totalPnL / (totalOpenQty * 100)).toFixed(1)
+        : null;
+
+      const outcome = parseFloat(points) > 0 ? "Win"
+                    : parseFloat(points) < 0 ? "Loss"
+                    : "Breakeven";
+
+      // Stable unique ID: sorted fill IDs
+      const allIds = [...openFills, ...closeFills]
+        .map(f => String(f.id))
+        .sort()
+        .join("_");
 
       roundTrips.push({
         id:               Date.now() + Math.floor(Math.random() * 999999),
-        entry_datetime:   toET(openLeg.creationTimestamp),
-        exit_datetime:    toET(fill.creationTimestamp),
+        entry_datetime:   toET(entryTime),
+        exit_datetime:    toET(exitTime),
         direction,
-        lot_size:         lotSize,
-        entry_price:      entryPrice,
-        exit_price:       null,
+        lot_size:         totalOpenQty,
+        entry_price:      parseFloat(entryVWAP.toFixed(2)),
+        exit_price:       exitVWAP ? parseFloat(exitVWAP.toFixed(2)) : null,
         stop_loss:        null,
         take_profit:      null,
         points,
         rrr:              null,
         outcome,
-        session:          getSession(openLeg.creationTimestamp),
+        mae:              mae,
+        mae_price:        maePrice ? parseFloat(maePrice.toFixed(2)) : null,
+        session:          getSession(entryTime),
         trade_mode:       "Live",
         grade:            "Ungraded",
         execution_grade:  "Ungraded",
@@ -166,25 +208,39 @@ function pairTrades(fills) {
         news_impact:      "Low",
         htf_bias:         null,
         market_structure: null,
-        mae:              null,
-        notes:            `Auto-synced from TopstepX | tsx_id:${tsxId} | P&L: $${pnl.toFixed(2)} | Fees: $${fees.toFixed(2)}`,
+        notes: [
+          `Auto-synced from TopstepX | tsx_id:${allIds}`,
+          `P&L: $${totalPnL.toFixed(2)}`,
+          `Fees: $${totalFees.toFixed(2)}`,
+          totalOpenQty > 1 || openFills.length > 1
+            ? `Fills: ${openFills.length} open / ${closeFills.length} close` : null,
+          exitVWAP ? `Avg exit: ${exitVWAP.toFixed(2)}` : null,
+        ].filter(Boolean).join(" | "),
         screenshot:       null,
         screenshot_name:  null,
       });
+
+      openFills  = [];
+      closeFills = [];
+      totalPnL   = 0;
+      totalFees  = 0;
     }
   }
+
+  if (openFills.length > 0) {
+    console.log(`${openFills.length} open fills remaining (position still open — skipping)`);
+  }
+
   return roundTrips;
 }
 
 // ── Sync log helpers ──────────────────────────────────────────────────────────
 async function getLastSyncTime(forceFrom) {
-  // Allow manual override via request body
   if (forceFrom) return new Date(forceFrom);
   try {
     const res = await sbFetch(`/sync_log?select=last_sync&id=eq.topstepx&limit=1`);
-    if (res && res[0] && res[0].last_sync) return new Date(res[0].last_sync);
-  } catch(e) { console.log("sync_log not found, using full lookback"); }
-  // Default: 1 year back to catch all historical trades
+    if (res?.[0]?.last_sync) return new Date(res[0].last_sync);
+  } catch(e) { console.log("sync_log not found, using 1-year default"); }
   return new Date(Date.now() - 365 * 24 * 3600 * 1000);
 }
 
@@ -211,30 +267,26 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Auth check — skip if no CRON_SECRET is set (easier dev testing)
   if (CRON_SECRET) {
-    const authHeader = (req.headers.authorization || "").replace("Bearer ", "").trim();
-    if (authHeader !== CRON_SECRET) {
-      console.log(`Auth failed. Got: "${authHeader}", Expected: "${CRON_SECRET}"`);
+    const provided = (req.headers.authorization || "").replace("Bearer ", "").trim();
+    if (provided !== CRON_SECRET) {
+      console.log(`Auth failed. Got: "${provided}"`);
       return res.status(401).json({ error: "Unauthorized" });
     }
   }
 
   try {
-    // Support manual overrides from request body:
-    // { "resetSync": true }  — clears sync_log so full history is fetched
-    // { "forceFrom": "2024-01-01T00:00:00.000Z" }  — fetch from specific date
     const body = req.body || {};
     const { resetSync, forceFrom } = body;
 
     if (resetSync) {
-      console.log("resetSync requested — clearing sync_log");
+      console.log("resetSync — clearing sync_log");
       try {
         await sbFetch(`/sync_log?id=eq.topstepx`, {
           method: "DELETE",
           headers: { "Prefer": "return=minimal" },
         });
-      } catch(e) { console.log("sync_log clear skipped:", e.message); }
+      } catch(e) { console.log("sync_log clear:", e.message); }
     }
 
     const token     = await tsxAuth();
@@ -242,41 +294,48 @@ export default async function handler(req, res) {
     const syncFrom  = await getLastSyncTime(forceFrom);
     const syncTo    = new Date();
 
-    console.log(`Using account ID: ${accountId}`);
-    console.log(`Syncing ${syncFrom.toISOString()} → ${syncTo.toISOString()}`);
+    console.log(`Account: ${accountId} | ${syncFrom.toISOString()} → ${syncTo.toISOString()}`);
 
     const fills = await tsxFetchTrades(token, accountId, syncFrom.toISOString(), syncTo.toISOString());
     console.log(`${fills.length} fills fetched`);
 
     if (!fills.length) {
       await updateLastSyncTime(syncTo);
-      return res.status(200).json({ success: true, synced: 0, message: "No new fills" });
+      return res.status(200).json({ success: true, synced: 0, fills: 0, message: "No fills in range" });
     }
 
     const roundTrips = pairTrades(fills);
     console.log(`${roundTrips.length} round trips paired`);
 
-    // Dedup by tsx_id in notes
-    const existing = await sbFetch(`/trades?select=notes&trade_mode=eq.Live&notes=like.Auto-synced*`);
+    // Dedup: fetch all tsx_ids already stored
+    const existingRaw = await sbFetch(
+      `/trades?select=notes&trade_mode=eq.Live&notes=like.Auto-synced*&limit=5000`
+    );
     const existingIds = new Set(
-      (existing || []).map(r => {
-        const m = r.notes && r.notes.match(/tsx_id:([^\s|]+)/);
-        return m ? m[1] : null;
-      }).filter(Boolean)
+      (existingRaw || []).flatMap(r => {
+        const m = r.notes?.match(/tsx_id:([^\s|]+)/);
+        return m ? [m[1]] : [];
+      })
     );
 
     const newTrades = roundTrips.filter(t => {
-      const m = t.notes.match(/tsx_id:([^\s|]+)/);
+      const m = t.notes?.match(/tsx_id:([^\s|]+)/);
       return m ? !existingIds.has(m[1]) : true;
     });
 
-    console.log(`${newTrades.length} new trades to insert`);
+    console.log(`${newTrades.length} new trades to insert (${roundTrips.length - newTrades.length} already exist)`);
 
     if (newTrades.length > 0) {
+      // Remove mae_price — not a Supabase column, store in notes
+      const toInsert = newTrades.map(({ mae_price, exit_price, ...t }) => ({
+        ...t,
+        // Add mae_price to notes if present
+        notes: mae_price ? `${t.notes} | MAE price: ${mae_price}` : t.notes,
+      }));
       await sbFetch(`/trades`, {
         method: "POST",
         headers: { "Prefer": "return=minimal" },
-        body: JSON.stringify(newTrades),
+        body: JSON.stringify(toInsert),
       });
     }
 
@@ -285,7 +344,9 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       synced: newTrades.length,
+      alreadyExisted: roundTrips.length - newTrades.length,
       fills: fills.length,
+      roundTrips: roundTrips.length,
       from: syncFrom.toISOString(),
       to: syncTo.toISOString(),
     });
