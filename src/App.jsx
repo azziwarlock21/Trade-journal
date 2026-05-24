@@ -2172,4 +2172,4 @@ export default function GCJournal() {
       </div>
     </div>
   );
-});
+};
