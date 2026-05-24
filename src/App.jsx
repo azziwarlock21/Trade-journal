@@ -648,20 +648,21 @@ export default function GCJournal() {
   const triggerSync = useCallback(async () => {
     setSyncRunning(true); setSyncStatus(null);
     try {
-      const CRON_SECRET = process.env.REACT_APP_CRON_SECRET || "";
-      const base = window.location.origin;
-      const res = await fetch(`${base}/api/sync-topstepx`, {
+      // VITE_CRON_SECRET must be set in Vercel env vars AND in your .env file
+      // as VITE_CRON_SECRET=your-secret (Vite exposes VITE_ prefixed vars to browser)
+      const secret = import.meta.env.VITE_CRON_SECRET || "";
+      const base   = window.location.origin;
+      const res    = await fetch(`${base}/api/sync-topstepx`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${CRON_SECRET}`,
+          "Authorization": `Bearer ${secret}`,
         },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Sync failed");
       setSyncStatus({ synced: data.synced, from: data.from, to: data.to, error: null });
       if (data.synced > 0) {
-        // Refresh trades from Supabase to show new ones
         const fresh = await dbFetchAll();
         setTrades(fresh);
       }
@@ -2172,4 +2173,4 @@ export default function GCJournal() {
       </div>
     </div>
   );
-};
+}
