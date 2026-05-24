@@ -1,15 +1,15 @@
 // ============================================================
 // Vercel Serverless Function — TopstepX → Supabase Sync
 // File: /api/sync-topstepx.js
-// Runs on cron schedule + manual trigger from journal
 // ============================================================
 
-const TOPSTEPX_API  = "https://api.topstepx.com";
-const SUPABASE_URL  = process.env.SUPABASE_URL;
-const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY; // service role key (not anon)
-const TSX_USERNAME  = process.env.TOPSTEPX_USERNAME;
-const TSX_API_KEY   = process.env.TOPSTEPX_API_KEY;
-const TSX_ACCOUNT_ID = process.env.TOPSTEPX_ACCOUNT_ID;
+const TOPSTEPX_API   = "https://api.topstepx.com";
+const SUPABASE_URL   = process.env.SUPABASE_URL;
+const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_KEY;
+const TSX_USERNAME   = process.env.TOPSTEPX_USERNAME;
+const TSX_API_KEY    = process.env.TOPSTEPX_API_KEY;
+const TSX_ACCOUNT_ID = process.env.TOPSTEPX_ACCOUNT_ID; // keep as string
+const CRON_SECRET    = process.env.CRON_SECRET || "";
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
 const sbHeaders = {
@@ -23,278 +23,207 @@ async function sbFetch(path, opts = {}) {
     ...opts,
     headers: { ...sbHeaders, ...(opts.headers || {}) },
   });
-  if (!res.ok) throw new Error(`Supabase ${path}: ${await res.text()}`);
-  return res.json();
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Supabase ${path}: ${text}`);
+  return text ? JSON.parse(text) : null;
 }
 
-// ── TopstepX helpers ──────────────────────────────────────────────────────────
+// ── TopstepX auth ─────────────────────────────────────────────────────────────
 async function tsxAuth() {
-  console.log("USERNAME:", JSON.stringify(TSX_USERNAME));
-console.log("API KEY:", JSON.stringify(TSX_API_KEY));
-
   const res = await fetch(`${TOPSTEPX_API}/api/Auth/loginKey`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "accept": "application/json"
-    },
-    body: JSON.stringify({
-      userName: TSX_USERNAME,
-      apiKey: TSX_API_KEY
-    }),
+    headers: { "Content-Type": "application/json", "accept": "application/json" },
+    body: JSON.stringify({ userName: TSX_USERNAME, apiKey: TSX_API_KEY }),
   });
-
   const text = await res.text();
-
-  console.log("TopstepX auth raw response:", text);
-
   let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(`Invalid JSON response: ${text}`);
-  }
-
-  if (!data.success) {
-    throw new Error(
-      `TopstepX auth failed: ${data.errorMessage || text}`
-    );
-  }
-
+  try { data = JSON.parse(text); } catch(e) { throw new Error(`TopstepX auth bad response: ${text}`); }
+  if (!data.token) throw new Error(`TopstepX auth failed: ${JSON.stringify(data)}`);
   return data.token;
 }
 
-async function tsxFetchTrades(token, accountId, startTimestamp, endTimestamp) {
+// ── TopstepX fetch trades ─────────────────────────────────────────────────────
+async function tsxFetchTrades(token, startTimestamp, endTimestamp) {
   const res = await fetch(`${TOPSTEPX_API}/api/Trade/search`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "accept": "text/plain",
+      "accept": "application/json",
       "Authorization": `Bearer ${token}`,
     },
-    body: JSON.stringify({ accountId, startTimestamp, endTimestamp }),
+    body: JSON.stringify({
+      accountId: TSX_ACCOUNT_ID,  // keep as string — API may want string or number
+      startTimestamp,
+      endTimestamp,
+    }),
   });
-  const data = await res.json();
-  if (!data.success) throw new Error(`TopstepX trade fetch failed: ${data.errorMessage}`);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch(e) { throw new Error(`TopstepX trade fetch bad response: ${text}`); }
+  if (!res.ok || data.success === false) throw new Error(`TopstepX trade fetch: ${JSON.stringify(data)}`);
   return data.trades || [];
 }
 
-// ── Pair half-turn trades into round trips ────────────────────────────────────
-// TopstepX returns individual fills. A round trip = open fill (P&L null) + close fill (P&L set)
-// We match them by orderId pairs and creation time order
+// ── Pair fills into round trips ───────────────────────────────────────────────
+function isDST(date) {
+  const jan = new Date(date.getFullYear(), 0, 1);
+  const jul = new Date(date.getFullYear(), 6, 1);
+  return date.getTimezoneOffset() < Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+}
+
+function toET(isoStr) {
+  const d = new Date(isoStr);
+  const offset = isDST(d) ? -4 : -5;
+  const et = new Date(d.getTime() + offset * 3600000);
+  return et.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
+}
+
+function getSession(isoStr) {
+  const d = new Date(isoStr);
+  const offset = isDST(d) ? -4 : -5;
+  const et = new Date(d.getTime() + offset * 3600000);
+  const mins = et.getUTCHours() * 60 + et.getUTCMinutes();
+  if (mins >= 1080 || mins < 180) return "Asia";
+  if (mins < 480)  return "London";
+  if (mins < 720)  return "London/NY Overlap";
+  if (mins < 1020) return "New York";
+  return "After Hours";
+}
+
 function pairTrades(fills) {
-  // Sort oldest first
-  const sorted = [...fills].sort((a, b) =>
-    new Date(a.creationTimestamp) - new Date(b.creationTimestamp)
-  );
+  const sorted = [...fills]
+    .filter(f => !f.voided)
+    .sort((a, b) => new Date(a.creationTimestamp) - new Date(b.creationTimestamp));
 
   const roundTrips = [];
-  const openLegs = []; // queue of unmatched open legs
+  const openLegs = [];
 
   for (const fill of sorted) {
-    if (fill.voided) continue;
-
-    if (fill.profitAndLoss === null || fill.profitAndLoss === undefined) {
-      // This is an open leg
+    const hasClose = fill.profitAndLoss !== null && fill.profitAndLoss !== undefined;
+    if (!hasClose) {
       openLegs.push(fill);
     } else {
-      // This is a close leg — match with oldest open leg
       const openLeg = openLegs.shift();
-      if (!openLeg) continue; // orphaned close, skip
+      if (!openLeg) continue;
 
-      const direction = openLeg.side === 0 ? "Long" : "Short"; // 0=buy=Long, 1=sell=Short
+      const direction  = openLeg.side === 0 ? "Long" : "Short";
       const entryPrice = openLeg.price;
-      const exitPrice  = fill.price;
       const lotSize    = openLeg.size;
       const pnl        = fill.profitAndLoss;
-
-      // Points: GC = $100/point, so points = P&L / (lotSize * 100)
-      const points = lotSize > 0 ? (pnl / (lotSize * 100)).toFixed(1) : null;
-      const outcome = pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven";
-
-      // Detect session from entry time (ET)
-      const entryET  = new Date(openLeg.creationTimestamp);
-      const etHour   = entryET.getUTCHours() - 5; // rough ET offset (adjust for DST if needed)
-      const etMins   = etHour * 60 + entryET.getUTCMinutes();
-      let session = "New York";
-      if (etMins >= 1080 || etMins < 180)      session = "Asia";
-      else if (etMins < 480)                   session = "London";
-      else if (etMins < 720)                   session = "London/NY Overlap";
-      else if (etMins >= 1020)                 session = "After Hours";
-
-      // Format datetimes as datetime-local string (ET)
-      const toET = (isoStr) => {
-        const d = new Date(isoStr);
-        // Adjust for ET (UTC-5 standard, UTC-4 DST — simplified here)
-        const etOffset = isDST(d) ? -4 : -5;
-        const et = new Date(d.getTime() + etOffset * 3600000);
-        return et.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
-      };
+      const fees       = (openLeg.fees || 0) + (fill.fees || 0);
+      const points     = lotSize > 0 ? (pnl / (lotSize * 100)).toFixed(1) : null;
+      const outcome    = parseFloat(points) > 0 ? "Win" : parseFloat(points) < 0 ? "Loss" : "Breakeven";
+      const tsxId      = `${openLeg.id}_${fill.id}`;
 
       roundTrips.push({
-        tsx_trade_id:   `${openLeg.id}_${fill.id}`, // unique key for dedup
-        entry_datetime: toET(openLeg.creationTimestamp),
-        exit_datetime:  toET(fill.creationTimestamp),
+        id:               Date.now() + Math.floor(Math.random() * 999999),
+        entry_datetime:   toET(openLeg.creationTimestamp),
+        exit_datetime:    toET(fill.creationTimestamp),
         direction,
-        lot_size:       lotSize,
-        entry_price:    entryPrice,
-        exit_price:     null, // we removed exit price from schema
-        stop_loss:      null, // not available from API
-        take_profit:    null, // not available from API
+        lot_size:         lotSize,
+        entry_price:      entryPrice,
+        exit_price:       null,
+        stop_loss:        null,
+        take_profit:      null,
         points,
-        rrr:            null,
+        rrr:              null,
         outcome,
-        session,
-        trade_mode:     "Live",
-        grade:          "Ungraded",
-        execution_grade:"Ungraded",
-        trade_type:     null,
-        candle_pattern: "None",
-        wick_direction: "None",
-        news:           "None",
-        news_impact:    "Low",
-        htf_bias:       null,
+        session:          getSession(openLeg.creationTimestamp),
+        trade_mode:       "Live",
+        grade:            "Ungraded",
+        execution_grade:  "Ungraded",
+        trade_type:       null,
+        candle_pattern:   "None",
+        wick_direction:   "None",
+        news:             "None",
+        news_impact:      "Low",
+        htf_bias:         null,
         market_structure: null,
-        mae:            null,
-        notes:          `Auto-synced from TopstepX. P&L: $${pnl.toFixed(2)} | Fees: $${((openLeg.fees || 0) + (fill.fees || 0)).toFixed(2)}`,
-        screenshot:     null,
-        screenshot_name:null,
+        mae:              null,
+        notes:            `Auto-synced from TopstepX | tsx_id:${tsxId} | P&L: $${pnl.toFixed(2)} | Fees: $${fees.toFixed(2)}`,
+        screenshot:       null,
+        screenshot_name:  null,
       });
     }
   }
-
   return roundTrips;
 }
 
-// Rough DST check for US Eastern
-function isDST(date) {
-  const jan = new Date(date.getFullYear(), 0, 1).getTimezoneOffset();
-  const jul = new Date(date.getFullYear(), 6, 1).getTimezoneOffset();
-  return Math.max(jan, jul) !== date.getTimezoneOffset();
-}
-
-// ── Dedup: check which tsx_trade_ids already exist ────────────────────────────
-async function getExistingIds(ids) {
-  if (!ids.length) return new Set();
-  // Store tsx_trade_id in notes prefix for dedup (no schema change needed)
-  // We use a dedicated column if you add it, or check notes
-  const res = await sbFetch(
-    `/trades?select=notes&notes=like.Auto-synced*`,
-    { headers: { "Prefer": "return=representation" } }
-  );
-  const existing = new Set(
-    res.map(r => {
-      const match = r.notes && r.notes.match(/tsx:([^\s|]+)/);
-      return match ? match[1] : null;
-    }).filter(Boolean)
-  );
-  return existing;
-}
-
-// ── Get last sync time from Supabase sync_log table ──────────────────────────
+// ── Sync log helpers ──────────────────────────────────────────────────────────
 async function getLastSyncTime() {
   try {
     const res = await sbFetch(`/sync_log?select=last_sync&id=eq.topstepx&limit=1`);
     if (res && res[0] && res[0].last_sync) return new Date(res[0].last_sync);
-  } catch(e) { /* table may not exist yet */ }
-  // Default: last 7 days
+  } catch(e) { console.log("sync_log not found, using 7-day default"); }
   return new Date(Date.now() - 7 * 24 * 3600 * 1000);
 }
 
 async function updateLastSyncTime(time) {
-  await sbFetch(`/sync_log?id=eq.topstepx`, {
-    method: "PATCH",
-    headers: { "Prefer": "return=representation" },
-    body: JSON.stringify({ last_sync: time.toISOString(), updated_at: new Date().toISOString() }),
-  }).catch(() => {
-    // If row doesn't exist, insert it
-    return sbFetch(`/sync_log`, {
+  try {
+    await sbFetch(`/sync_log?id=eq.topstepx`, {
+      method: "PATCH",
+      headers: { "Prefer": "return=minimal" },
+      body: JSON.stringify({ last_sync: time.toISOString(), updated_at: new Date().toISOString() }),
+    });
+  } catch(e) {
+    await sbFetch(`/sync_log`, {
       method: "POST",
-      headers: { "Prefer": "return=representation" },
+      headers: { "Prefer": "return=minimal" },
       body: JSON.stringify({ id: "topstepx", last_sync: time.toISOString(), updated_at: new Date().toISOString() }),
     });
-  });
+  }
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  // Allow CORS for manual trigger from journal UI
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Validate cron secret to prevent unauthorized triggers
- const cronSecret = process.env.CRON_SECRET || "";
- 
- // Allow Vercel cron jobs automatically
- const isVercelCron = req.headers["x-vercel-cron"];
- 
- // Optional manual auth
- const authHeader = req.headers.authorization || "";
- 
- if (
-   !isVercelCron &&
-   cronSecret &&
-   authHeader !== `Bearer ${journal}`
- ) {
-   return res.status(401).json({ error: "Unauthorized" });
-}
-
+  // Auth check — skip if no CRON_SECRET is set (easier dev testing)
+  if (CRON_SECRET) {
+    const authHeader = (req.headers.authorization || "").replace("Bearer ", "").trim();
+    if (authHeader !== CRON_SECRET) {
+      console.log(`Auth failed. Got: "${authHeader}", Expected: "${CRON_SECRET}"`);
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+  }
 
   try {
-    // 1. Authenticate with TopstepX
-    const token = await tsxAuth();
-
-    // 2. Get time window
+    const token    = await tsxAuth();
     const syncFrom = await getLastSyncTime();
     const syncTo   = new Date();
 
-    console.log(`Syncing trades from ${syncFrom.toISOString()} to ${syncTo.toISOString()}`);
+    console.log(`Syncing ${syncFrom.toISOString()} → ${syncTo.toISOString()}`);
 
-    // 3. Fetch fills from TopstepX
-    const fills = await tsxFetchTrades(
-      token,
-      parseInt(TSX_ACCOUNT_ID),
-      syncFrom.toISOString(),
-      syncTo.toISOString()
-    );
-
-    console.log(`Fetched ${fills.length} fills from TopstepX`);
+    const fills = await tsxFetchTrades(token, syncFrom.toISOString(), syncTo.toISOString());
+    console.log(`${fills.length} fills fetched`);
 
     if (!fills.length) {
       await updateLastSyncTime(syncTo);
-      return res.status(200).json({ synced: 0, message: "No new fills" });
+      return res.status(200).json({ success: true, synced: 0, message: "No new fills" });
     }
 
-    // 4. Pair into round trips
     const roundTrips = pairTrades(fills);
-    console.log(`Paired into ${roundTrips.length} round trips`);
+    console.log(`${roundTrips.length} round trips paired`);
 
-    // 5. Dedup — check which ones already exist using tsx_trade_id in notes
-    const existingNotes = await sbFetch(
-      `/trades?select=notes&trade_mode=eq.Live&notes=like.Auto-synced*`
-    );
+    // Dedup by tsx_id in notes
+    const existing = await sbFetch(`/trades?select=notes&trade_mode=eq.Live&notes=like.Auto-synced*`);
     const existingIds = new Set(
-      existingNotes.map(r => {
+      (existing || []).map(r => {
         const m = r.notes && r.notes.match(/tsx_id:([^\s|]+)/);
         return m ? m[1] : null;
       }).filter(Boolean)
     );
 
-    // 6. Filter new trades only and tag with tsx_id
-    const newTrades = roundTrips
-      .filter(t => !existingIds.has(t.tsx_trade_id))
-      .map(t => ({
-        ...t,
-        id: Date.now() + Math.floor(Math.random() * 100000),
-        notes: `Auto-synced from TopstepX | tsx_id:${t.tsx_trade_id} | P&L: $${t.notes.match(/P&L: \$([^\s|]+)/)?.[1] || "?"} | Fill fees included`,
-        tsx_trade_id: undefined, // remove temp field
-      }));
+    const newTrades = roundTrips.filter(t => {
+      const m = t.notes.match(/tsx_id:([^\s|]+)/);
+      return m ? !existingIds.has(m[1]) : true;
+    });
 
-    console.log(`Inserting ${newTrades.length} new trades`);
+    console.log(`${newTrades.length} new trades to insert`);
 
-    // 7. Insert into Supabase
     if (newTrades.length > 0) {
       await sbFetch(`/trades`, {
         method: "POST",
@@ -303,7 +232,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // 8. Update last sync time
     await updateLastSyncTime(syncTo);
 
     return res.status(200).json({
@@ -315,7 +243,7 @@ export default async function handler(req, res) {
     });
 
   } catch(err) {
-    console.error("Sync error:", err);
+    console.error("Sync error:", err.message);
     return res.status(500).json({ error: err.message });
   }
 }
