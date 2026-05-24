@@ -651,20 +651,25 @@ export default function GCJournal() {
   const deleteExpense = (id) => { const u = expenses.filter(e => e.id !== id); setExpenses(u); localStorage.setItem("gc_expenses", JSON.stringify(u)); };
 
   // Calculate total expense for an item up to today
-  const calcExpenseTotal = (exp) => {
-    if (!exp.monthly) return exp.amount;
-    const start = new Date(exp.startMonth + "-01");
-    const now   = new Date();
-    const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
-    return exp.amount * Math.max(1, months + 1);
-  };
   const calcExpenseMonths = (exp) => {
-    if (!exp.monthly) return 1;
-    const start = new Date(exp.startMonth + "-01");
-    const now   = new Date();
-    const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
-    return Math.max(1, months + 1);
-  };
+  if (!exp.monthly) return 1;
+
+  const [startYear, startMonth] = exp.startMonth.split("-").map(Number);
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // convert to 1-indexed
+
+  const months =
+    (currentYear - startYear) * 12 +
+    (currentMonth - startMonth);
+
+  return Math.max(1, months + 1);
+};
+
+const calcExpenseTotal = (exp) => {
+  return calcExpenseMonths(exp) * exp.amount;
+};
   const [syncStatus, setSyncStatus]       = useState(null); // {synced, from, to, error}
   const [syncRunning, setSyncRunning]     = useState(false);
 
