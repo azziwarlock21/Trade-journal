@@ -41,8 +41,8 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   if (CRON_SECRET) {
-   // const provided = (req.headers.authorization || "").replace("Bearer ", "").trim();
-  //  if (provided !== CRON_SECRET) return res.status(401).json({ error: "Unauthorized" });
+    const provided = (req.headers.authorization || "").replace("Bearer ", "").trim();
+    if (provided !== CRON_SECRET) return res.status(401).json({ error: "Unauthorized" });
   }
 
   try {
