@@ -210,21 +210,48 @@ function pairGroups(groups) {
     const fees        = openGroup.totalFees + closeGroup.totalFees;
     const commissions = openGroup.totalCommissions + closeGroup.totalCommissions;
 
-    // Points: MGC = $10/point (micro gold), GC = $100/point (full gold)
-    // CON.F.US.MGC = micro, CON.F.US.GC = full
     const contractId  = openGroup.fills[0].contractId || "";
     const isMicro     = contractId.includes("MGC");
-    const pointValue  = isMicro ? 10 : 100;
-    const points      = lotSize > 0
-      ? ((pnl / (lotSize * pointValue)) * (direction === "Long" ? 1 : -1)).toFixed(1)
-      : null;
-    // Simpler: derive points from price difference
-    const priceDiff   = direction === "Long"
-      ? exitPrice - entryPrice
-      : entryPrice - exitPrice;
-    const pointsFromPrice = (priceDiff * 10).toFixed(1); // GC/MGC: 0.1 = 1 point
 
     const outcome = pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven";
+
+    // Points from actual price difference (0.1 price = 1 point for both GC and MGC)
+    const priceDiff = direction === "Long"
+      ? exitPrice - entryPrice
+      : entryPrice - exitPrice;
+    const points = (priceDiff * 10).toFixed(1);
+
+    // Your system: always 1:2 RRR — SL is always half the distance of TP
+    // Win  → exit hit TP → TP distance = |exit - entry|, SL = TP/2
+    // Loss → exit hit SL → SL distance = |exit - entry|, TP = SL*2
+    let stopLoss = null, takeProfit = null, rrr = null;
+
+    if (outcome === "Win") {
+      const tpDist = Math.abs(exitPrice - entryPrice);
+      const slDist = tpDist / 2;
+      if (direction === "Long") {
+        stopLoss   = parseFloat((entryPrice - slDist).toFixed(2));
+        takeProfit = parseFloat((entryPrice + tpDist).toFixed(2));
+      } else {
+        stopLoss   = parseFloat((entryPrice + slDist).toFixed(2));
+        takeProfit = parseFloat((entryPrice - tpDist).toFixed(2));
+      }
+      rrr = "2.00";
+    } else if (outcome === "Loss") {
+      const slDist = Math.abs(exitPrice - entryPrice);
+      const tpDist = slDist * 2;
+      if (direction === "Long") {
+        stopLoss   = parseFloat((entryPrice - slDist).toFixed(2));
+        takeProfit = parseFloat((entryPrice + tpDist).toFixed(2));
+      } else {
+        stopLoss   = parseFloat((entryPrice + slDist).toFixed(2));
+        takeProfit = parseFloat((entryPrice - tpDist).toFixed(2));
+      }
+      rrr = "-1.00";
+    } else {
+      // Breakeven — can't derive SL/TP, leave null
+      rrr = "0.00";
+    }
 
     // Stable dedup ID from sorted fill IDs across both groups
     const allFillIds = [...openGroup.fills, ...closeGroup.fills]
@@ -239,11 +266,11 @@ function pairGroups(groups) {
       direction,
       lot_size:         lotSize,
       entry_price:      entryPrice,
-      exit_price:       null, // removed from schema
-      stop_loss:        null,
-      take_profit:      null,
-      points:           pointsFromPrice,
-      rrr:              null,
+      exit_price:       null,
+      stop_loss:        stopLoss,
+      take_profit:      takeProfit,
+      points,
+      rrr,
       outcome,
       mae:              null,
       session:          getSession(openGroup.firstTimestamp),
