@@ -1,6 +1,6 @@
 // ============================================================
-// Vercel Serverless Function — TopstepX → Supabase Sync
-// v4 — rewritten pairing based on real fill data analysis
+// TopstepX → Supabase Sync  v5
+// Data-first: derives everything directly from fill data
 // ============================================================
 
 const TOPSTEPX_API   = "https://api.topstepx.com";
@@ -12,16 +12,15 @@ const TSX_ACCOUNT_ID = process.env.TOPSTEPX_ACCOUNT_ID;
 const CRON_SECRET    = process.env.CRON_SECRET || "";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
-const sbH = (extra = {}) => ({
-  "Content-Type": "application/json",
-  "apikey": SUPABASE_KEY,
-  "Authorization": `Bearer ${SUPABASE_KEY}`,
-  ...extra,
-});
-
 async function sbFetch(path, opts = {}) {
-  const res  = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
-    ...opts, headers: sbH(opts.headers || {}),
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      ...(opts.headers || {}),
+    },
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`Supabase ${path}: ${text}`);
@@ -36,7 +35,7 @@ async function tsxAuth() {
     body: JSON.stringify({ userName: TSX_USERNAME, apiKey: TSX_API_KEY }),
   });
   const data = await res.json();
-  if (!data.token) throw new Error(`TopstepX auth failed: ${JSON.stringify(data)}`);
+  if (!data.token) throw new Error(`Auth failed: ${JSON.stringify(data)}`);
   return data.token;
 }
 
@@ -47,286 +46,269 @@ async function tsxGetAccountId(token) {
     body: JSON.stringify({ onlyActiveAccounts: true }),
   });
   const data = await res.json();
-  if (!data.success || !data.accounts?.length) throw new Error(`No active accounts: ${JSON.stringify(data)}`);
+  if (!data.success || !data.accounts?.length) throw new Error(`No accounts: ${JSON.stringify(data)}`);
   console.log("Accounts:", data.accounts.map(a => `${a.id}:${a.name}`).join(", "));
   if (TSX_ACCOUNT_ID) {
-    const match = data.accounts.find(a => String(a.id) === String(TSX_ACCOUNT_ID) || a.name === TSX_ACCOUNT_ID);
+    const match = data.accounts.find(a =>
+      String(a.id) === String(TSX_ACCOUNT_ID) || a.name === TSX_ACCOUNT_ID
+    );
     if (match) return match.id;
   }
   return data.accounts[0].id;
 }
 
-async function tsxFetchFills(token, accountId, startTimestamp, endTimestamp) {
+async function tsxFetchFills(token, accountId, from, to) {
   const res  = await fetch(`${TOPSTEPX_API}/api/Trade/search`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "accept": "application/json", "Authorization": `Bearer ${token}` },
-    body: JSON.stringify({ accountId, startTimestamp, endTimestamp }),
+    body: JSON.stringify({ accountId, startTimestamp: from, endTimestamp: to }),
   });
   const data = await res.json();
-  if (!res.ok || data.success === false) throw new Error(`TopstepX fills: ${JSON.stringify(data)}`);
-  return data.trades || [];
+  if (!res.ok || data.success === false) throw new Error(`Fill search: ${JSON.stringify(data)}`);
+  return (data.trades || []).filter(f => !f.voided && f.size > 0);
 }
 
-// ── Timezone helpers ──────────────────────────────────────────────────────────
-function isDST(d) {
+// ── Timezone ──────────────────────────────────────────────────────────────────
+function toET(iso) {
+  const d   = new Date(iso);
   const jan = new Date(d.getFullYear(), 0, 1).getTimezoneOffset();
   const jul = new Date(d.getFullYear(), 6, 1).getTimezoneOffset();
-  return d.getTimezoneOffset() < Math.max(jan, jul);
-}
-function toET(iso) {
-  const d = new Date(iso);
-  const et = new Date(d.getTime() + (isDST(d) ? -4 : -5) * 3600000);
+  const dst = d.getTimezoneOffset() < Math.max(jan, jul);
+  const et  = new Date(d.getTime() + (dst ? -4 : -5) * 3600000);
   return et.toISOString().slice(0, 16);
 }
+
 function getSession(iso) {
-  const d    = new Date(iso);
-  const et   = new Date(d.getTime() + (isDST(d) ? -4 : -5) * 3600000);
-  const mins = et.getUTCHours() * 60 + et.getUTCMinutes();
-  if (mins >= 1080 || mins < 180) return "Asia";
-  if (mins < 480)  return "London";
-  if (mins < 720)  return "London/NY Overlap";
-  if (mins < 1020) return "New York";
+  const d   = new Date(iso);
+  const jan = new Date(d.getFullYear(), 0, 1).getTimezoneOffset();
+  const jul = new Date(d.getFullYear(), 6, 1).getTimezoneOffset();
+  const dst = d.getTimezoneOffset() < Math.max(jan, jul);
+  const et  = new Date(d.getTime() + (dst ? -4 : -5) * 3600000);
+  const m   = et.getUTCHours() * 60 + et.getUTCMinutes();
+  if (m >= 1080 || m < 180) return "Asia";
+  if (m < 480)              return "London";
+  if (m < 720)              return "London/NY Overlap";
+  if (m < 1020)             return "New York";
   return "After Hours";
 }
 
-// ── PAIRING LOGIC ─────────────────────────────────────────────────────────────
-//
-// What we learned from real fill data:
-//
-// 1. OPEN fill:  profitAndLoss === null
-//    CLOSE fill: profitAndLoss is a number (positive or negative)
-//    This is 100% reliable — confirmed in raw data.
-//
-// 2. Multiple positions on the same day:
-//    - Each has its own open fill (P&L=null) + close fill (P&L=number)
-//    - They are completely independent — different prices, different times
-//    - Each should become ONE journal trade
-//
-// 3. Scaling into a position (multiple contracts):
-//    - Can be ONE fill with size=2 (May 18 example: size=2, one close fill)
-//    - OR can be multiple fills within seconds (May 21 example: 2x size=1 shorts)
-//    - When multiple opens happen within 5 seconds → same trade, average price
-//    - When multiple closes happen within 5 seconds → same trade, average price
-//
-// 4. Bracket orders closing multiple positions simultaneously:
-//    - Both closes get same orderId and near-identical timestamps
-//    - This means 2 separate round trips, each with their own entry price
-//
-// STRATEGY:
-// Sort fills oldest-first. Walk through maintaining a position queue.
-// Group fills within 5 seconds + same side into "fill groups".
-// Match open groups with close groups using FIFO.
+// ── Contract point value ──────────────────────────────────────────────────────
+// MGC (Micro Gold) = $10 per point per contract
+// GC  (Full Gold)  = $100 per point per contract
+function pointValue(contractId) {
+  return contractId?.includes("MGC") ? 10 : 100;
+}
 
-const GROUP_WINDOW_MS = 5000; // fills within 5 seconds = same order event
+// ── PAIRING ───────────────────────────────────────────────────────────────────
+//
+// TopstepX fill structure (confirmed from real data):
+//   - OPEN fill:  profitAndLoss === null
+//   - CLOSE fill: profitAndLoss is a number
+//   - Multiple fills within seconds = scaling into/out of same position
+//   - Same orderId on close fills = bracket order closing multiple positions
+//
+// Approach: group fills within a 5-second window into events,
+// then FIFO-match open events to close events of opposite side.
 
-function groupFills(fills) {
-  // Sort oldest first
-  const sorted = [...fills]
-    .filter(f => !f.voided && f.size > 0)
-    .sort((a, b) => new Date(a.creationTimestamp) - new Date(b.creationTimestamp));
+const WINDOW = 5000; // ms
 
-  const groups = [];
-  let current = null;
+function buildEvents(fills) {
+  const sorted = [...fills].sort(
+    (a, b) => new Date(a.creationTimestamp) - new Date(b.creationTimestamp)
+  );
 
-  for (const fill of sorted) {
-    const ts = new Date(fill.creationTimestamp).getTime();
-    const isClose = fill.profitAndLoss !== null && fill.profitAndLoss !== undefined;
+  const events = [];
+  let cur = null;
 
-    if (
-      current &&
-      current.isClose === isClose &&
-      current.side === fill.side &&
-      ts - current.lastTs <= GROUP_WINDOW_MS
-    ) {
-      // Add to current group
-      current.fills.push(fill);
-      current.lastTs = ts;
-      current.totalSize    += fill.size;
-      current.totalPnL     += fill.profitAndLoss || 0;
-      current.totalFees    += fill.fees || 0;
-      current.totalCommissions += fill.commissions || 0;
-      // VWAP price
-      current.vwapPrice = current.fills.reduce((s, f) => s + f.price * f.size, 0) /
-                          current.fills.reduce((s, f) => s + f.size, 0);
+  for (const f of sorted) {
+    const ts      = new Date(f.creationTimestamp).getTime();
+    const isClose = f.profitAndLoss !== null && f.profitAndLoss !== undefined;
+
+    if (cur && cur.isClose === isClose && cur.side === f.side && ts - cur.lastTs <= WINDOW) {
+      cur.fills.push(f);
+      cur.lastTs      = ts;
+      cur.totalSize  += f.size;
+      cur.totalPnL   += isClose ? f.profitAndLoss : 0;
+      cur.totalFees  += f.fees || 0;
     } else {
-      // Start new group
-      current = {
-        fills: [fill],
-        side: fill.side,
+      cur = {
+        fills:         [f],
+        side:          f.side,        // 0 = buy, 1 = sell
         isClose,
-        firstTs: ts,
-        lastTs: ts,
-        totalSize: fill.size,
-        totalPnL: fill.profitAndLoss || 0,
-        totalFees: fill.fees || 0,
-        totalCommissions: fill.commissions || 0,
-        vwapPrice: fill.price,
-        firstTimestamp: fill.creationTimestamp,
+        firstTs:       ts,
+        lastTs:        ts,
+        firstIso:      f.creationTimestamp,
+        totalSize:     f.size,
+        totalPnL:      isClose ? f.profitAndLoss : 0,
+        totalFees:     f.fees || 0,
+        contractId:    f.contractId || "",
       };
-      groups.push(current);
+      events.push(cur);
     }
   }
 
-  return groups;
+  // Compute VWAP price for each event
+  events.forEach(ev => {
+    const totalValue = ev.fills.reduce((s, f) => s + f.price * f.size, 0);
+    const totalSize  = ev.fills.reduce((s, f) => s + f.size, 0);
+    ev.vwap = totalValue / totalSize;
+  });
+
+  return events;
 }
 
-function pairGroups(groups) {
-  const roundTrips = [];
+function pairEvents(events) {
+  const opens  = events.filter(e => !e.isClose).sort((a, b) => a.firstTs - b.firstTs);
+  const closes = events.filter(e =>  e.isClose).sort((a, b) => a.firstTs - b.firstTs);
 
-  // Separate opens and closes
-  const opens  = groups.filter(g => !g.isClose);
-  const closes = groups.filter(g => g.isClose);
+  console.log(`Events: ${opens.length} open, ${closes.length} close`);
+  opens.forEach(e  => console.log(`  OPEN  side=${e.side} size=${e.totalSize} vwap=${e.vwap.toFixed(2)} ${e.firstIso.slice(0,16)}`));
+  closes.forEach(e => console.log(`  CLOSE side=${e.side} size=${e.totalSize} pnl=$${e.totalPnL} ${e.firstIso.slice(0,16)}`));
 
-  console.log(`Groups: ${opens.length} open groups, ${closes.length} close groups`);
-  opens.forEach(g => console.log(`  OPEN  side=${g.side} size=${g.totalSize} price=${g.vwapPrice.toFixed(2)} ${g.firstTimestamp}`));
-  closes.forEach(g => console.log(`  CLOSE side=${g.side} size=${g.totalSize} pnl=${g.totalPnL} ${g.firstTimestamp}`));
+  const closePool = [...closes];
+  const trades    = [];
 
-  // FIFO match: each open group pairs with the next close group of opposite side
-  // Sort both by time
-  const openQueue  = [...opens].sort((a, b) => a.firstTs - b.firstTs);
-  const closeQueue = [...closes].sort((a, b) => a.firstTs - b.firstTs);
-
-  for (const openGroup of openQueue) {
-    // Find earliest close group that:
-    // 1. Happened AFTER the open
-    // 2. Is opposite side (open=0/buy → close=1/sell, open=1/sell → close=0/buy)
-    const oppositeSide = openGroup.side === 0 ? 1 : 0;
-    const closeIdx = closeQueue.findIndex(
-      c => c.side === oppositeSide && c.firstTs > openGroup.firstTs
+  for (const open of opens) {
+    // Match: opposite side, after open time
+    const oppSide = open.side === 0 ? 1 : 0;
+    const idx     = closePool.findIndex(
+      c => c.side === oppSide && c.firstTs > open.firstTs
     );
 
-    if (closeIdx === -1) {
-      console.log(`No close found for open at ${openGroup.firstTimestamp} — position still open, skipping`);
+    if (idx === -1) {
+      console.log(`  → OPEN at ${open.firstIso.slice(0,16)} has no close yet (position still live)`);
       continue;
     }
 
-    const closeGroup = closeQueue.splice(closeIdx, 1)[0];
+    const close = closePool.splice(idx, 1)[0];
 
-    const direction   = openGroup.side === 0 ? "Long" : "Short";
-    const entryPrice  = parseFloat(openGroup.vwapPrice.toFixed(2));
-    const exitPrice   = parseFloat(closeGroup.vwapPrice.toFixed(2));
-    const lotSize     = openGroup.totalSize;
-    const pnl         = closeGroup.totalPnL;
-    const fees        = openGroup.totalFees + closeGroup.totalFees;
-    const commissions = openGroup.totalCommissions + closeGroup.totalCommissions;
+    // ── Core trade data ────────────────────────────────────────────────────
+    const direction  = open.side === 0 ? "Long" : "Short";
+    const entry      = parseFloat(open.vwap.toFixed(2));
+    const exit       = parseFloat(close.vwap.toFixed(2));
+    const contracts  = open.totalSize;
+    const pnl        = close.totalPnL;          // actual dollars from TSX
+    const fees       = open.totalFees + close.totalFees;
+    const pv         = pointValue(open.contractId);
+    const isMicro    = open.contractId.includes("MGC");
 
-    const contractId  = openGroup.fills[0].contractId || "";
-    const isMicro     = contractId.includes("MGC");
+    // ── Points — direct from actual P&L ───────────────────────────────────
+    // pnl = points × pv × contracts  →  points = pnl / (pv × contracts)
+    const points = parseFloat((pnl / (pv * contracts)).toFixed(1));
 
+    // ── Outcome ────────────────────────────────────────────────────────────
     const outcome = pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven";
 
-    // Points from actual price difference (0.1 price = 1 point for both GC and MGC)
-    const priceDiff = direction === "Long"
-      ? exitPrice - entryPrice
-      : entryPrice - exitPrice;
-    const points = (priceDiff * 10).toFixed(1);
+    // ── SL / TP / RRR — derived from your fixed 1:2 system ────────────────
+    // Win  → you hit TP → TP dist = |exit−entry|, SL = TP dist ÷ 2
+    // Loss → you hit SL → SL dist = |exit−entry|, TP = SL dist × 2
+    let stopLoss = null, takeProfit = null, rrr = "0.00";
 
-    // Your system: always 1:2 RRR — SL is always half the distance of TP
-    // Win  → exit hit TP → TP distance = |exit - entry|, SL = TP/2
-    // Loss → exit hit SL → SL distance = |exit - entry|, TP = SL*2
-    let stopLoss = null, takeProfit = null, rrr = null;
+    const exitDist = Math.abs(exit - entry);
 
     if (outcome === "Win") {
-      const tpDist = Math.abs(exitPrice - entryPrice);
-      const slDist = tpDist / 2;
-      if (direction === "Long") {
-        stopLoss   = parseFloat((entryPrice - slDist).toFixed(2));
-        takeProfit = parseFloat((entryPrice + tpDist).toFixed(2));
-      } else {
-        stopLoss   = parseFloat((entryPrice + slDist).toFixed(2));
-        takeProfit = parseFloat((entryPrice - tpDist).toFixed(2));
-      }
+      const slDist = exitDist / 2;
+      stopLoss   = direction === "Long"
+        ? parseFloat((entry - slDist).toFixed(2))
+        : parseFloat((entry + slDist).toFixed(2));
+      takeProfit = direction === "Long"
+        ? parseFloat((entry + exitDist).toFixed(2))
+        : parseFloat((entry - exitDist).toFixed(2));
       rrr = "2.00";
+
     } else if (outcome === "Loss") {
-      const slDist = Math.abs(exitPrice - entryPrice);
-      const tpDist = slDist * 2;
-      if (direction === "Long") {
-        stopLoss   = parseFloat((entryPrice - slDist).toFixed(2));
-        takeProfit = parseFloat((entryPrice + tpDist).toFixed(2));
-      } else {
-        stopLoss   = parseFloat((entryPrice + slDist).toFixed(2));
-        takeProfit = parseFloat((entryPrice - tpDist).toFixed(2));
-      }
+      const tpDist = exitDist * 2;
+      stopLoss   = direction === "Long"
+        ? parseFloat((entry - exitDist).toFixed(2))
+        : parseFloat((entry + exitDist).toFixed(2));
+      takeProfit = direction === "Long"
+        ? parseFloat((entry + tpDist).toFixed(2))
+        : parseFloat((entry - tpDist).toFixed(2));
       rrr = "-1.00";
-    } else {
-      // Breakeven — can't derive SL/TP, leave null
-      rrr = "0.00";
     }
 
-    // Stable dedup ID from sorted fill IDs across both groups
-    const allFillIds = [...openGroup.fills, ...closeGroup.fills]
+    // ── Stable dedup ID ────────────────────────────────────────────────────
+    const tsxId = [...open.fills, ...close.fills]
       .map(f => String(f.id))
       .sort()
       .join("_");
 
-    roundTrips.push({
+    // ── Notes — useful context, not clutter ────────────────────────────────
+    const noteparts = [
+      `tsx_id:${tsxId}`,
+      `P&L: $${pnl.toFixed(2)}`,
+      `Fees: $${fees.toFixed(2)}`,
+      contracts > 1 ? `${contracts} contracts` : null,
+      `${isMicro ? "MGC" : "GC"} @ $${pv}/pt`,
+    ].filter(Boolean);
+
+    console.log(`  → ${direction} ${contracts}x | ${points >= 0 ? "+" : ""}${points}pts | $${pnl} | ${outcome} | SL:${stopLoss} TP:${takeProfit} RRR:${rrr}`);
+
+    trades.push({
       id:               Date.now() + Math.floor(Math.random() * 999999),
-      entry_datetime:   toET(openGroup.firstTimestamp),
-      exit_datetime:    toET(closeGroup.firstTimestamp),
+      entry_datetime:   toET(open.firstIso),
+      exit_datetime:    toET(close.firstIso),
       direction,
-      lot_size:         lotSize,
-      entry_price:      entryPrice,
-      exit_price:       null,
+      lot_size:         contracts,
+      entry_price:      entry,
       stop_loss:        stopLoss,
       take_profit:      takeProfit,
-      points,
+      points:           String(points),
       rrr,
       outcome,
       mae:              null,
-      session:          getSession(openGroup.firstTimestamp),
+      session:          getSession(open.firstIso),
       trade_mode:       "Live",
       grade:            "Ungraded",
       execution_grade:  "Ungraded",
-      trade_type:       null,
+      trade_type:       "Supply and Demand",
       candle_pattern:   "None",
       wick_direction:   "None",
       news:             "None",
       news_impact:      "Low",
       htf_bias:         null,
       market_structure: null,
-      notes: [
-        `Auto-synced from TopstepX | tsx_id:${allFillIds}`,
-        `P&L: $${pnl.toFixed(2)}`,
-        `Fees: $${fees.toFixed(2)}`,
-        `Contract: ${contractId}`,
-        lotSize > 1 ? `${lotSize} contracts` : null,
-        isMicro ? "Micro Gold (MGC)" : "Gold (GC)",
-      ].filter(Boolean).join(" | "),
-      screenshot:      null,
-      screenshot_name: null,
+      notes:            `Auto-synced from TopstepX | ${noteparts.join(" | ")}`,
+      screenshot:       null,
+      screenshot_name:  null,
     });
   }
 
-  if (closeQueue.length > 0) {
-    console.log(`${closeQueue.length} close group(s) had no matching open — orphaned`);
+  if (closePool.length) {
+    console.log(`${closePool.length} close event(s) unmatched — orphaned closes ignored`);
   }
 
-  return roundTrips;
+  return trades;
 }
 
 // ── Sync log ──────────────────────────────────────────────────────────────────
 async function getLastSyncTime(forceFrom) {
   if (forceFrom) return new Date(forceFrom);
   try {
-    const res = await sbFetch(`/sync_log?select=last_sync&id=eq.topstepx&limit=1`);
-    if (res?.[0]?.last_sync) return new Date(res[0].last_sync);
-  } catch(e) { console.log("sync_log not found"); }
+    const rows = await sbFetch(`/sync_log?select=last_sync&id=eq.topstepx&limit=1`);
+    if (rows?.[0]?.last_sync) return new Date(rows[0].last_sync);
+  } catch(e) { /* first run */ }
   return new Date(Date.now() - 365 * 24 * 3600 * 1000);
 }
 
-async function updateLastSyncTime(time) {
-  const body = JSON.stringify({ id: "topstepx", last_sync: time.toISOString(), updated_at: new Date().toISOString() });
+async function setLastSyncTime(t) {
+  const body = JSON.stringify({
+    id: "topstepx",
+    last_sync: t.toISOString(),
+    updated_at: new Date().toISOString(),
+  });
   try {
-    const r = await sbFetch(`/sync_log?id=eq.topstepx`, {
+    await sbFetch(`/sync_log?id=eq.topstepx`, {
       method: "PATCH", headers: { "Prefer": "return=minimal" }, body,
     });
-    if (!r && r !== null) throw new Error("patch returned nothing");
   } catch(e) {
-    await sbFetch(`/sync_log`, { method: "POST", headers: { "Prefer": "return=minimal" }, body });
+    await sbFetch(`/sync_log`, {
+      method: "POST", headers: { "Prefer": "return=minimal" }, body,
+    });
   }
 }
 
-// ── Main handler ──────────────────────────────────────────────────────────────
+// ── Handler ───────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -334,63 +316,58 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   if (CRON_SECRET) {
-    const provided = (req.headers.authorization || "").replace("Bearer ", "").trim();
-    if (provided !== CRON_SECRET) {
-      console.log(`Auth mismatch. Got: "${provided}"`);
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+    const auth = (req.headers.authorization || "").replace("Bearer ", "").trim();
+    if (auth !== CRON_SECRET) return res.status(401).json({ error: "Unauthorized" });
   }
 
   try {
-    const body = req.body || {};
-    const { resetSync, forceFrom } = body;
+    const { resetSync, forceFrom } = req.body || {};
 
     if (resetSync) {
-      console.log("resetSync requested");
+      console.log("Full reset requested — clearing sync log");
       try {
         await sbFetch(`/sync_log?id=eq.topstepx`, {
           method: "DELETE", headers: { "Prefer": "return=minimal" },
         });
-      } catch(e) { console.log("sync_log clear:", e.message); }
+      } catch(e) { /* ok if missing */ }
     }
 
     const token     = await tsxAuth();
     const accountId = await tsxGetAccountId(token);
-    const syncFrom  = await getLastSyncTime(forceFrom);
-    const syncTo    = new Date();
+    const from      = await getLastSyncTime(forceFrom);
+    const to        = new Date();
 
-    console.log(`Sync window: ${syncFrom.toISOString()} → ${syncTo.toISOString()}`);
+    console.log(`Syncing ${from.toISOString().slice(0,16)} → ${to.toISOString().slice(0,16)}`);
 
-    const fills = await tsxFetchFills(token, accountId, syncFrom.toISOString(), syncTo.toISOString());
-    console.log(`${fills.length} raw fills`);
+    const fills = await tsxFetchFills(token, accountId, from.toISOString(), to.toISOString());
+    console.log(`${fills.length} fills fetched`);
 
     if (!fills.length) {
-      await updateLastSyncTime(syncTo);
-      return res.status(200).json({ success: true, synced: 0, fills: 0, message: "No fills in range" });
+      await setLastSyncTime(to);
+      return res.status(200).json({ success: true, synced: 0, message: "No fills in range" });
     }
 
-    // Group fills within time windows, then pair opens with closes
-    const groups     = groupFills(fills);
-    const roundTrips = pairGroups(groups);
-    console.log(`${roundTrips.length} round trips from ${fills.length} fills`);
+    const events = buildEvents(fills);
+    const trades  = pairEvents(events);
+    console.log(`${trades.length} trades paired`);
 
-    // Dedup against existing trades
+    // Dedup: skip any tsx_id already in Supabase
     const existing = await sbFetch(
       `/trades?select=notes&trade_mode=eq.Live&notes=like.Auto-synced*&limit=5000`
     );
-    const existingIds = new Set(
+    const knownIds = new Set(
       (existing || []).flatMap(r => {
         const m = r.notes?.match(/tsx_id:([^\s|]+)/);
         return m ? [m[1]] : [];
       })
     );
 
-    const newTrades = roundTrips.filter(t => {
+    const newTrades = trades.filter(t => {
       const m = t.notes?.match(/tsx_id:([^\s|]+)/);
-      return m ? !existingIds.has(m[1]) : true;
+      return m ? !knownIds.has(m[1]) : true;
     });
 
-    console.log(`${newTrades.length} new, ${roundTrips.length - newTrades.length} already exist`);
+    console.log(`${newTrades.length} new | ${trades.length - newTrades.length} already imported`);
 
     if (newTrades.length > 0) {
       await sbFetch(`/trades`, {
@@ -400,20 +377,19 @@ export default async function handler(req, res) {
       });
     }
 
-    await updateLastSyncTime(syncTo);
+    await setLastSyncTime(to);
 
     return res.status(200).json({
       success:        true,
       synced:         newTrades.length,
-      alreadyExisted: roundTrips.length - newTrades.length,
+      skipped:        trades.length - newTrades.length,
       fills:          fills.length,
-      roundTrips:     roundTrips.length,
-      from:           syncFrom.toISOString(),
-      to:             syncTo.toISOString(),
+      from:           from.toISOString(),
+      to:             to.toISOString(),
     });
 
   } catch(err) {
-    console.error("Sync error:", err.message);
+    console.error("Error:", err.message);
     return res.status(500).json({ error: err.message });
   }
 }
