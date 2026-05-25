@@ -618,67 +618,93 @@ export default function GCJournal() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError]     = useState("");
 
-  // ── Payouts & Expenses state ───────────────────────────────────────────────
-  const [payouts, setPayouts]           = useState(() => {
-    try { return JSON.parse(localStorage.getItem("gc_payouts") || "[]"); } catch(e) { return []; }
-  });
-  const [expenses, setExpenses]         = useState(() => {
-    try {
-      const stored = localStorage.getItem("gc_expenses");
-      const parsed = stored ? JSON.parse(stored) : null;
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    } catch(e) {}
-    return [
-      { id: 1, name: "TopstepX 150k Account (Activation)", amount: 167, startMonth: "2026-04", monthly: true },
-      { id: 2, name: "TopstepX 50k Account (Trade Copier)", amount: 50, startMonth: "2026-04", monthly: true },
-      { id: 3, name: "TopstepX API Subscription", amount: 29, startMonth: "2026-05", monthly: true },
-    ];
-  });
-  const [newPayout, setNewPayout]       = useState({ date: "", amount: "", account: "", notes: "" });
-  const [newExpense, setNewExpense]      = useState({ name: "", amount: "", startMonth: "", monthly: true });
+  // ── Payouts, Expenses & Tax state ─────────────────────────────────────────
+  const DEFAULT_EXPENSES = [
+    { id: 1, name: "TopstepX 150k Account (Activation)", amount: 167, startMonth: "2026-04", monthly: true },
+    { id: 2, name: "TopstepX 50k Account (Trade Copier)", amount: 50, startMonth: "2026-04", monthly: true },
+    { id: 3, name: "TopstepX API Subscription", amount: 29, startMonth: "2026-05", monthly: true },
+  ];
+  const [payouts, setPayouts]             = useState([]);
+  const [expenses, setExpenses]           = useState(DEFAULT_EXPENSES);
+  const [finLoaded, setFinLoaded]         = useState(false);
+  const [newPayout, setNewPayout]         = useState({ date: "", amount: "", account: "", notes: "" });
+  const [newExpense, setNewExpense]        = useState({ name: "", amount: "", startMonth: "", monthly: true });
+  const [taxArmyIncome, setTaxArmyIncome] = useState(32000);
+  const [taxFilingStatus, setTaxFilingStatus] = useState("single");
 
-  const savePayout = () => {
+  useEffect(() => {
+    const loadFinancial = async () => {
+      try {
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/sync_log?id=in.(gc_payouts,gc_expenses)&select=id,last_sync`,
+          { headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` } }
+        );
+        if (res.ok) {
+          const rows = await res.json();
+          const pr = rows.find(r => r.id === "gc_payouts");
+          const er = rows.find(r => r.id === "gc_expenses");
+          if (pr?.last_sync) { try { setPayouts(JSON.parse(pr.last_sync)); } catch(e) {} }
+          if (er?.last_sync) { try { setExpenses(JSON.parse(er.last_sync)); } catch(e) {} }
+        }
+      } catch(e) { /* use defaults */ }
+      setFinLoaded(true);
+    };
+    loadFinancial();
+  }, []);
+
+  const sbHeaders2 = { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
+
+  const persistData = async (id, data) => {
+    const body = JSON.stringify({ id, last_sync: JSON.stringify(data), updated_at: new Date().toISOString() });
+    const patch = await fetch(`${SUPABASE_URL}/rest/v1/sync_log?id=eq.${id}`, {
+      method: "PATCH", headers: { ...sbHeaders2, "Prefer": "return=minimal" }, body,
+    });
+    if (!patch.ok) {
+      await fetch(`${SUPABASE_URL}/rest/v1/sync_log`, {
+        method: "POST", headers: { ...sbHeaders2, "Prefer": "return=minimal" }, body,
+      });
+    }
+  };
+
+  const savePayout = async () => {
     if (!newPayout.date || !newPayout.amount) { alert("Fill in date and amount."); return; }
     const updated = [...payouts, { ...newPayout, id: Date.now(), amount: parseFloat(newPayout.amount) }];
     setPayouts(updated);
-    localStorage.setItem("gc_payouts", JSON.stringify(updated));
+    await persistData("gc_payouts", updated);
     setNewPayout({ date: "", amount: "", account: "", notes: "" });
   };
-  const deletePayout = (id) => { const u = payouts.filter(p => p.id !== id); setPayouts(u); localStorage.setItem("gc_payouts", JSON.stringify(u)); };
+  const deletePayout = async (id) => {
+    const updated = payouts.filter(p => p.id !== id);
+    setPayouts(updated);
+    await persistData("gc_payouts", updated);
+  };
 
-  const saveExpense = () => {
+  const saveExpense = async () => {
     if (!newExpense.name || !newExpense.amount || !newExpense.startMonth) { alert("Fill in name, amount, and start month."); return; }
     const updated = [...expenses, { ...newExpense, id: Date.now(), amount: parseFloat(newExpense.amount) }];
     setExpenses(updated);
-    localStorage.setItem("gc_expenses", JSON.stringify(updated));
+    await persistData("gc_expenses", updated);
     setNewExpense({ name: "", amount: "", startMonth: "", monthly: true });
   };
-  const deleteExpense = (id) => { const u = expenses.filter(e => e.id !== id); setExpenses(u); localStorage.setItem("gc_expenses", JSON.stringify(u)); };
+  const deleteExpense = async (id) => {
+    const updated = expenses.filter(e => e.id !== id);
+    setExpenses(updated);
+    await persistData("gc_expenses", updated);
+  };
 
-  // Calculate total expense for an item up to today
-  const Total = (exp) => {
-    if (!exp.monthly) return exp.amount;
-    const start = new Date(exp.startMonth + "-01");
-    const now   = new Date();
-    const calcExpenseMonths = (exp) => {
-  if (!exp.monthly) return 1;
-
-  const [startYear, startMonth] = exp.startMonth.split("-").map(Number);
-
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1; // convert to 1-indexed
-
-  const months =
-    (currentYear - startYear) * 12 +
-    (currentMonth - startMonth);
-
-  return Math.max(1, months + 1);
-};
-
-const calcExpenseTotal = (exp) => {
-  return calcExpenseMonths(exp) * exp.amount;
-};
+  // Explicit UTC month arithmetic — no timezone drift
+  const calcExpenseMonths = (exp) => {
+    if (!exp.monthly) return 1;
+    const [sy, sm] = exp.startMonth.split("-").map(Number);
+    const now = new Date();
+    const ny = now.getUTCFullYear();
+    const nm = now.getUTCMonth() + 1; // 1-indexed
+    const diff = (ny - sy) * 12 + (nm - sm);
+    return Math.max(1, diff + 1); // diff=0 when same month → 1 month
+  };
+  const calcExpenseTotal = (exp) => exp.monthly
+    ? parseFloat((exp.amount * calcExpenseMonths(exp)).toFixed(2))
+    : exp.amount;
   const [syncStatus, setSyncStatus]       = useState(null); // {synced, from, to, error}
   const [syncRunning, setSyncRunning]     = useState(false);
 
@@ -1416,7 +1442,7 @@ const calcExpenseTotal = (exp) => {
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {["journal","log","analytics","rules","calc","coach","payouts","expenses"].map(v => (
+          {["journal","log","analytics","rules","calc","coach","payouts","tax","expenses"].map(v => (
             <button key={v} onClick={() => setView(v)} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${view === v ? "#f5c842" : "#2a2f3a"}`, background: view === v ? "rgba(245,200,66,0.1)" : "transparent", color: view === v ? "#f5c842" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
               {v === "calc" ? "Position" : v === "coach" ? "AI Coach" : v}
             </button>
@@ -2576,6 +2602,177 @@ const calcExpenseTotal = (exp) => {
                 ))}
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {/* ═══ TAX ═══ */}
+      {!loading && view === "tax" && (() => {
+        const totalPayouts  = payouts.reduce((s, p) => s + (p.amount || 0), 0);
+        const totalExpenses = expenses.reduce((s, e) => s + calcExpenseTotal(e), 0);
+        // Trading income = payouts minus expenses (deductible business costs)
+        const tradingIncome = Math.max(0, totalPayouts - totalExpenses);
+        const armyIncome    = parseFloat(taxArmyIncome) || 0;
+        const totalIncome   = armyIncome + tradingIncome;
+
+        // 2024 US Federal tax brackets (single and MFJ)
+        const brackets = {
+          single: [
+            { limit: 11600,  rate: 0.10 },
+            { limit: 47150,  rate: 0.12 },
+            { limit: 100525, rate: 0.22 },
+            { limit: 191950, rate: 0.24 },
+            { limit: 243725, rate: 0.32 },
+            { limit: 609350, rate: 0.35 },
+            { limit: Infinity, rate: 0.37 },
+          ],
+          married: [
+            { limit: 23200,  rate: 0.10 },
+            { limit: 94300,  rate: 0.12 },
+            { limit: 201050, rate: 0.22 },
+            { limit: 383900, rate: 0.24 },
+            { limit: 487450, rate: 0.32 },
+            { limit: 731200, rate: 0.35 },
+            { limit: Infinity, rate: 0.37 },
+          ],
+        };
+        const standardDeduction = taxFilingStatus === "single" ? 14600 : 29200;
+        const taxableIncome = Math.max(0, totalIncome - standardDeduction);
+
+        // Progressive tax calculation
+        let fedTax = 0;
+        let prev = 0;
+        for (const bracket of brackets[taxFilingStatus === "single" ? "single" : "married"]) {
+          if (taxableIncome <= prev) break;
+          const taxable = Math.min(taxableIncome, bracket.limit) - prev;
+          fedTax += taxable * bracket.rate;
+          prev = bracket.limit;
+        }
+
+        // Self-employment tax on trading income (15.3% on first $168,600)
+        // Army income is W2 so SE tax doesn't apply to it
+        const seTax = tradingIncome > 0 ? Math.min(tradingIncome, 168600) * 0.1530 : 0;
+
+        // Tennessee has no income tax
+        const stateTax = 0;
+
+        const totalTax     = fedTax + seTax + stateTax;
+        const effectiveRate = totalIncome > 0 ? (totalTax / totalIncome * 100) : 0;
+
+        // How much to set aside per payout
+        const setAsideRate = totalIncome > 0 ? totalTax / totalIncome : 0;
+        const perPayoutSave = payouts.length > 0
+          ? payouts.map(p => ({ ...p, save: p.amount * setAsideRate }))
+          : [];
+
+        // What's already been withdrawn and how much should be saved
+        const totalShouldSave  = totalPayouts * setAsideRate;
+        const alreadySaved     = 0; // user tracks manually — shown as guidance
+
+        const fmt = (n) => `$${Math.round(n).toLocaleString("en-US")}`;
+        const fmtD = (n) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const cinp = { width: "100%", background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "8px 12px", color: "#e6edf3", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };
+
+        return (
+          <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 20px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 6 }}>Tax Estimator</div>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 20 }}>
+              Estimates based on 2024 US federal brackets + self-employment tax. Tennessee has no state income tax. Not tax advice — consult a CPA for your actual filing.
+            </div>
+
+            {/* Inputs */}
+            <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 20, marginBottom: 16 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#e6edf3", letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>Your Situation</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+                <div>
+                  <label style={lbl}>Army Base Pay (annual)</label>
+                  <input type="number" value={taxArmyIncome} onChange={e => setTaxArmyIncome(e.target.value)} style={cinp} />
+                  <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>W-2 income — taxed normally</div>
+                </div>
+                <div>
+                  <label style={lbl}>Filing Status</label>
+                  <select value={taxFilingStatus} onChange={e => setTaxFilingStatus(e.target.value)} style={cinp}>
+                    <option value="single">Single</option>
+                    <option value="married">Married Filing Jointly</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Trading Income (auto)</label>
+                  <input readOnly value={fmtD(tradingIncome)} style={{ ...cinp, background: "#111827", border: "1px solid #00e5a044", color: "#f5c842", fontWeight: 700 }} />
+                  <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>Payouts minus deductible expenses</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Tax breakdown cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px,1fr))", gap: 12, marginBottom: 16 }}>
+              {[
+                ["Total Income",       fmt(totalIncome),                "#e6edf3", "army + trading"],
+                ["Standard Deduction", fmt(standardDeduction),          "#9ca3af", "2024 federal"],
+                ["Taxable Income",     fmt(taxableIncome),              "#f5c842", "after deduction"],
+                ["Federal Tax",        fmt(fedTax),                     "#ff4d6d", "progressive brackets"],
+                ["Self-Employ. Tax",   fmt(seTax),                      "#ff4d6d", "15.3% on trading income"],
+                ["State Tax (TN)",     "$0",                            "#00e5a0", "no income tax"],
+                ["Total Tax Est.",     fmt(totalTax),                   "#ff4d6d", `${effectiveRate.toFixed(1)}% effective rate`],
+                ["Set Aside Rate",     `${(setAsideRate*100).toFixed(1)}%`, "#a78bfa", "of each payout"],
+                ["Save from Payouts",  fmt(totalShouldSave),            "#f5c842", `from ${fmtD(totalPayouts)} withdrawn`],
+              ].map(([label, val, color, sub]) => (
+                <div key={label} style={{ background: "#0d1117", border: label === "Total Tax Est." ? "1px solid #ff4d6d44" : label === "Save from Payouts" ? "1px solid #f5c84244" : "1px solid #1f2937", borderRadius: 12, padding: "14px 16px" }}>
+                  <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color }}>{val}</div>
+                  {sub && <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>{sub}</div>}
+                </div>
+              ))}
+            </div>
+
+            {/* Per-payout savings guide */}
+            {payouts.length > 0 && (
+              <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 20, marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#e6edf3", letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>Per-Payout Tax Reserve</div>
+                <div style={{ fontSize: 10, color: "#4b5563", marginBottom: 12 }}>
+                  Set aside {(setAsideRate*100).toFixed(1)}% of each payout. Keep in a separate savings account untouched until tax time.
+                </div>
+                {[...perPayoutSave].sort((a,b) => b.date > a.date ? 1 : -1).map((p, i) => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 0", borderBottom: i < perPayoutSave.length-1 ? "1px solid #1f2937" : "none" }}>
+                    <span style={{ fontSize: 11, color: "#6b7280", minWidth: 90 }}>{p.date}</span>
+                    <span style={{ fontSize: 12, color: "#9ca3af" }}>{p.account || "—"}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#00e5a0" }}>{fmtD(p.amount)}</span>
+                    <span style={{ fontSize: 10, color: "#4b5563" }}>→ save</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#f5c842" }}>{fmtD(p.save)}</span>
+                    <span style={{ fontSize: 10, color: "#4b5563", marginLeft: "auto" }}>keep {fmtD(p.amount - p.save)}</span>
+                  </div>
+                ))}
+                <div style={{ marginTop: 14, padding: "12px 16px", background: "rgba(245,200,66,0.06)", border: "1px solid #f5c84233", borderRadius: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>Total you should have in tax reserve</span>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: "#f5c842" }}>{fmt(totalShouldSave)}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#4b5563", marginTop: 4 }}>
+                    This covers estimated federal tax + SE tax on your trading profits. File quarterly (Form 1040-ES) to avoid underpayment penalties.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Key reminders */}
+            <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 18 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#e6edf3", letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>Key Points for Your Situation</div>
+              {[
+                ["Futures = Section 1256", "GC (gold futures) contracts get 60/40 tax treatment — 60% taxed as long-term capital gains, 40% as short-term. This is more favorable than regular income. Your actual tax may be slightly lower than this estimate which uses ordinary income rates.", "#3b82f6"],
+                ["Self-Employment Tax", "Trading income from a prop firm is generally treated as self-employment income. You pay 15.3% SE tax on it on top of federal income tax. Keep this number in mind — it catches most new traders off guard.", "#f97316"],
+                ["Deductible Expenses", "Your TopstepX fees, API subscription, and trade copier costs are deductible business expenses. They reduce your taxable trading income, which is why we subtract them from payouts before calculating tax.", "#00e5a0"],
+                ["Quarterly Estimated Taxes", "Since you're self-employed on the trading side, you should file quarterly estimated payments (Jan 15, Apr 15, Jun 15, Sep 15). If you don't, you may owe a penalty at year end.", "#a78bfa"],
+                ["Tennessee Advantage", "Tennessee has no state income tax on wages or trading income. You keep more than traders in states like California or New York.", "#f5c842"],
+              ].map(([title, body, color]) => (
+                <div key={title} style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+                  <div style={{ width: 3, borderRadius: 2, background: color, flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color, marginBottom: 3 }}>{title}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280", lineHeight: 1.6 }}>{body}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         );
       })()}
