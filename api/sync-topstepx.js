@@ -35,7 +35,9 @@ async function tsxAuth() {
     headers: { "Content-Type": "application/json", "accept": "application/json" },
     body: JSON.stringify({ userName: TSX_USERNAME, apiKey: TSX_API_KEY }),
   });
-  const data = await res.json();
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch(e) { throw new Error(`Auth parse failed: ${text.slice(0,200)}`); }
   if (!data.token) throw new Error(`Auth failed: ${JSON.stringify(data)}`);
   return data.token;
 }
@@ -57,14 +59,34 @@ async function tsxGetAccountId(token) {
 }
 
 async function tsxFetchFills(token, accountId, from, to) {
+  // TopstepX requires:
+  // - accountId as integer
+  // - timestamps in strict ISO format with Z suffix (not +00:00)
+  const fromZ = new Date(from).toISOString();  // always produces Z format
+  const toZ   = new Date(to).toISOString();
+  const acctId = parseInt(String(accountId), 10);
+
+  const body = JSON.stringify({
+    accountId:      acctId,
+    startTimestamp: fromZ,
+    endTimestamp:   toZ,
+  });
+
+  console.log(`Fetching fills: accountId=${acctId} from=${fromZ} to=${toZ}`);
+
   const res  = await fetch(`${TOPSTEPX_API}/api/Trade/search`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "accept": "application/json", "Authorization": `Bearer ${token}` },
-    body: JSON.stringify({ accountId, startTimestamp: from, endTimestamp: to }),
+    headers: {
+      "Content-Type":  "application/json",
+      "accept":        "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body,
   });
-  const data = await res.json();
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch(e) { throw new Error(`Fill search parse failed: ${text.slice(0,300)}`); }
   if (!res.ok || data.success === false) throw new Error(`Fill search: ${JSON.stringify(data)}`);
-  // Filter voided, sort oldest first
   return (data.trades || [])
     .filter(f => !f.voided && f.size > 0)
     .sort((a, b) => new Date(a.creationTimestamp) - new Date(b.creationTimestamp));
@@ -229,7 +251,8 @@ async function getLastSyncTime(forceFrom) {
     const rows = await sbFetch(`/sync_log?select=last_sync&id=eq.topstepx&limit=1`);
     if (rows?.[0]?.last_sync) return new Date(rows[0].last_sync);
   } catch(e) { /* first run */ }
-  return new Date(Date.now() - 365 * 24 * 3600 * 1000);
+  // Default: go back 1 year to catch full history
+  return new Date("2026-01-01T00:00:00.000Z");
 }
 
 async function setLastSyncTime(t) {
@@ -321,384 +344,6 @@ export default async function handler(req, res) {
 
   } catch(err) {
     console.error("Error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-}  const data = await res.json();
-  if (!data.token) throw new Error(`Auth failed: ${JSON.stringify(data)}`);
-  return data.token;
-}
-
-async function tsxGetAccountId(token) {
-  const res  = await fetch(`${TOPSTEPX_API}/api/Account/search`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json", "accept": "application/json", "Authorization": `Bearer ${token}` },
-    body:    JSON.stringify({ onlyActiveAccounts: true }),
-  });
-  const data = await res.json();
-  if (!data.success || !data.accounts?.length)
-    throw new Error(`No accounts: ${JSON.stringify(data)}`);
-  console.log("Accounts:", data.accounts.map(a => `${a.id}:${a.name}`).join(", "));
-  if (TSX_ACCOUNT_ID) {
-    const match = data.accounts.find(
-      a => String(a.id) === String(TSX_ACCOUNT_ID) || a.name === TSX_ACCOUNT_ID
-    );
-    if (match) return match.id;
-  }
-  return data.accounts[0].id;
-}
-
-async function tsxFetchFills(token, accountId, from, to) {
-  const res  = await fetch(`${TOPSTEPX_API}/api/Trade/search`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json", "accept": "application/json", "Authorization": `Bearer ${token}` },
-    body:    JSON.stringify({ accountId, startTimestamp: from, endTimestamp: to }),
-  });
-  const data = await res.json();
-  if (!res.ok || data.success === false)
-    throw new Error(`Fill search: ${JSON.stringify(data)}`);
-  return (data.trades || []).filter(f => !f.voided && f.size > 0);
-}
-
-// ── Timezone ──────────────────────────────────────────────────────────────────
-function etOffset(d) {
-  // US Eastern: UTC-5 (EST) or UTC-4 (EDT)
-  const jan = new Date(d.getFullYear(), 0, 1).getTimezoneOffset();
-  const jul = new Date(d.getFullYear(), 6, 1).getTimezoneOffset();
-  return d.getTimezoneOffset() < Math.max(jan, jul) ? -4 : -5;
-}
-function toET(iso) {
-  const d  = new Date(iso);
-  const et = new Date(d.getTime() + etOffset(d) * 3600000);
-  return et.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
-}
-function getSession(iso) {
-  const d    = new Date(iso);
-  const et   = new Date(d.getTime() + etOffset(d) * 3600000);
-  const mins = et.getUTCHours() * 60 + et.getUTCMinutes();
-  if (mins >= 1080 || mins < 180) return "Asia";
-  if (mins < 480)                 return "London";
-  if (mins < 720)                 return "London/NY Overlap";
-  if (mins < 1020)                return "New York";
-  return "After Hours";
-}
-
-// ── Contract spec ─────────────────────────────────────────────────────────────
-// MGC (Micro Gold) = $10 per point per contract
-// GC  (Full  Gold) = $100 per point per contract
-// Point value is what TSX uses internally to calculate P&L
-function getPV(contractId) {
-  return (contractId || "").includes("MGC") ? 10 : 100;
-}
-
-// ── BUILD FILL EVENTS ─────────────────────────────────────────────────────────
-//
-// Confirmed from real fill data:
-//   OPEN fill:  profitAndLoss === null
-//   CLOSE fill: profitAndLoss is a number (the actual realized P&L for that fill)
-//
-// When multiple fills arrive within WINDOW ms on the same side/type,
-// they belong to the same position event (scaling in or bracket order).
-// We VWAP the price and sum P&L / fees / size across the group.
-
-const WINDOW_MS = 5000;
-
-function buildEvents(fills) {
-  const sorted = [...fills].sort(
-    (a, b) => new Date(a.creationTimestamp) - new Date(b.creationTimestamp)
-  );
-
-  const events = [];
-  let cur = null;
-
-  for (const f of sorted) {
-    const ts      = new Date(f.creationTimestamp).getTime();
-    const isClose = f.profitAndLoss !== null && f.profitAndLoss !== undefined;
-
-    if (
-      cur &&
-      cur.isClose === isClose &&
-      cur.side    === f.side &&
-      ts - cur.lastTs <= WINDOW_MS
-    ) {
-      cur.fills.push(f);
-      cur.lastTs     = ts;
-      cur.totalSize += f.size;
-      cur.totalPnL  += isClose ? (f.profitAndLoss || 0) : 0;
-      cur.totalFees += f.fees || 0;
-    } else {
-      cur = {
-        fills:       [f],
-        side:        f.side,      // 0 = buy, 1 = sell
-        isClose,
-        firstTs:     ts,
-        lastTs:      ts,
-        firstIso:    f.creationTimestamp,
-        totalSize:   f.size,
-        totalPnL:    isClose ? (f.profitAndLoss || 0) : 0,
-        totalFees:   f.fees || 0,
-        contractId:  f.contractId || "",
-      };
-      events.push(cur);
-    }
-  }
-
-  // Compute VWAP for each event
-  for (const ev of events) {
-    const totalVal  = ev.fills.reduce((s, f) => s + f.price * f.size, 0);
-    const totalSize = ev.fills.reduce((s, f) => s + f.size, 0);
-    ev.vwap = totalVal / totalSize;
-  }
-
-  return events;
-}
-
-// ── PAIR EVENTS INTO ROUND TRIPS ──────────────────────────────────────────────
-//
-// FIFO match: each open event pairs with the next close event of opposite side.
-// "Opposite side" because:
-//   Long trade  → opened with BUY (side=0),  closed with SELL (side=1)
-//   Short trade → opened with SELL (side=1), closed with BUY (side=0)
-
-function pairEvents(events) {
-  const opens  = events.filter(e => !e.isClose).sort((a, b) => a.firstTs - b.firstTs);
-  const closes = events.filter(e =>  e.isClose).sort((a, b) => a.firstTs - b.firstTs);
-
-  console.log(`\nEvents: ${opens.length} open, ${closes.length} close`);
-  opens.forEach(e  => console.log(
-    `  OPEN  side=${e.side} size=${e.totalSize} vwap=${e.vwap.toFixed(2)} ${e.firstIso.slice(0,16)}`
-  ));
-  closes.forEach(e => console.log(
-    `  CLOSE side=${e.side} size=${e.totalSize} pnl=$${e.totalPnL.toFixed(2)} ${e.firstIso.slice(0,16)}`
-  ));
-
-  const closePool = [...closes];
-  const trades    = [];
-
-  for (const open of opens) {
-    const oppSide = open.side === 0 ? 1 : 0;
-    const idx     = closePool.findIndex(
-      c => c.side === oppSide && c.firstTs > open.firstTs
-    );
-
-    if (idx === -1) {
-      console.log(`  → OPEN ${open.firstIso.slice(0,16)} — no close yet (position still live, skipping)`);
-      continue;
-    }
-
-    const close = closePool.splice(idx, 1)[0];
-
-    // ── Core fields ───────────────────────────────────────────────────────────
-    const direction  = open.side === 0 ? "Long" : "Short";
-    const contracts  = open.totalSize;
-    const entry      = parseFloat(open.vwap.toFixed(2));
-    const exit       = parseFloat(close.vwap.toFixed(2));
-    const pnl        = close.totalPnL;                  // actual dollars from TSX
-    const fees       = open.totalFees + close.totalFees;
-    const pv         = getPV(open.contractId);
-    const isMicro    = open.contractId.includes("MGC");
-
-    // ── Points — sourced from actual P&L, matches TSX dashboard exactly ───────
-    // Formula: points = pnl ÷ (pv × contracts)
-    // Example: $489.52 ÷ (10 × 2) = 24.5 pts  ✓ matches TSX "Best Trade"
-    const points = parseFloat((pnl / (pv * contracts)).toFixed(1));
-
-    // ── Outcome ───────────────────────────────────────────────────────────────
-    const outcome = pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven";
-
-    // ── SL / TP back-calculated from your fixed 1:2 system ───────────────────
-    // Win:  you hit TP → TP dist = |exit − entry|, SL = TP dist ÷ 2
-    // Loss: you hit SL → SL dist = |exit − entry|, TP = SL dist × 2
-    let stopLoss = null, takeProfit = null, rrr = "0.00";
-    const dist = Math.abs(exit - entry);
-
-    if (outcome === "Win" && dist > 0) {
-      const slDist = dist / 2;
-      stopLoss   = direction === "Long"
-        ? parseFloat((entry - slDist).toFixed(2))
-        : parseFloat((entry + slDist).toFixed(2));
-      takeProfit = direction === "Long"
-        ? parseFloat((entry + dist).toFixed(2))
-        : parseFloat((entry - dist).toFixed(2));
-      rrr = "2.00";
-
-    } else if (outcome === "Loss" && dist > 0) {
-      stopLoss   = direction === "Long"
-        ? parseFloat((entry - dist).toFixed(2))
-        : parseFloat((entry + dist).toFixed(2));
-      takeProfit = direction === "Long"
-        ? parseFloat((entry + dist * 2).toFixed(2))
-        : parseFloat((entry - dist * 2).toFixed(2));
-      rrr = "-1.00";
-    }
-
-    // ── Stable dedup key ──────────────────────────────────────────────────────
-    const tsxId = [...open.fills, ...close.fills]
-      .map(f => String(f.id)).sort().join("_");
-
-    console.log(
-      `  → ${direction} ${contracts}x | entry:${entry} exit:${exit}` +
-      ` | ${points >= 0 ? "+" : ""}${points}pts ($${pnl.toFixed(2)})` +
-      ` | ${outcome} RRR:${rrr}` +
-      ` | SL:${stopLoss} TP:${takeProfit}`
-    );
-
-    trades.push({
-      id:               Date.now() + Math.floor(Math.random() * 999999),
-      entry_datetime:   toET(open.firstIso),
-      exit_datetime:    toET(close.firstIso),
-      direction,
-      lot_size:         contracts,
-      entry_price:      entry,
-      stop_loss:        stopLoss,
-      take_profit:      takeProfit,
-      points:           String(points),
-      rrr,
-      outcome,
-      mae:              null,
-      session:          getSession(open.firstIso),
-      trade_mode:       "Live",
-      grade:            "Ungraded",
-      execution_grade:  "Ungraded",
-      trade_type:       "Supply and Demand",
-      candle_pattern:   "None",
-      wick_direction:   "None",
-      news:             "None",
-      news_impact:      "Low",
-      htf_bias:         null,
-      market_structure: null,
-      notes: [
-        `Auto-synced from TopstepX | tsx_id:${tsxId}`,
-        `P&L: $${pnl.toFixed(2)}`,
-        `Fees: $${fees.toFixed(2)}`,
-        contracts > 1 ? `${contracts} contracts (VWAP entry)` : null,
-        `${isMicro ? "MGC" : "GC"} @ $${pv}/pt`,
-      ].filter(Boolean).join(" | "),
-      screenshot:       null,
-      screenshot_name:  null,
-    });
-  }
-
-  if (closePool.length > 0) {
-    console.log(`  ${closePool.length} orphaned close(s) — no matching open in window`);
-  }
-
-  return trades;
-}
-
-// ── Sync log ──────────────────────────────────────────────────────────────────
-async function getLastSyncTime(forceFrom) {
-  if (forceFrom) return new Date(forceFrom);
-  try {
-    const rows = await sbFetch(`/sync_log?select=last_sync&id=eq.topstepx&limit=1`);
-    if (rows?.[0]?.last_sync) return new Date(rows[0].last_sync);
-  } catch(e) { /* first run */ }
-  // Default: 1 year back to catch all history
-  return new Date(Date.now() - 365 * 24 * 3600 * 1000);
-}
-
-async function setLastSyncTime(t) {
-  const body = JSON.stringify({
-    id: "topstepx",
-    last_sync:  t.toISOString(),
-    updated_at: new Date().toISOString(),
-  });
-  try {
-    await sbFetch(`/sync_log?id=eq.topstepx`, {
-      method: "PATCH", headers: { "Prefer": "return=minimal" }, body,
-    });
-  } catch(e) {
-    await sbFetch(`/sync_log`, {
-      method: "POST", headers: { "Prefer": "return=minimal" }, body,
-    });
-  }
-}
-
-// ── Main handler ──────────────────────────────────────────────────────────────
-export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin",  "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") return res.status(200).end();
-
-  if (CRON_SECRET) {
-    const auth = (req.headers.authorization || "").replace("Bearer ", "").trim();
-    if (auth !== CRON_SECRET) {
-      console.log(`Auth failed. Got: "${auth}"`);
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-  }
-
-  try {
-    const { resetSync, forceFrom } = req.body || {};
-
-    if (resetSync) {
-      console.log("Full reset — clearing sync log");
-      try {
-        await sbFetch(`/sync_log?id=eq.topstepx`, {
-          method: "DELETE", headers: { "Prefer": "return=minimal" },
-        });
-      } catch(e) { /* ok if already gone */ }
-    }
-
-    const token     = await tsxAuth();
-    const accountId = await tsxGetAccountId(token);
-    const from      = await getLastSyncTime(forceFrom);
-    const to        = new Date();
-
-    console.log(`Syncing ${from.toISOString().slice(0,10)} → ${to.toISOString().slice(0,10)}`);
-
-    const fills = await tsxFetchFills(token, accountId, from.toISOString(), to.toISOString());
-    console.log(`${fills.length} raw fills`);
-
-    if (!fills.length) {
-      await setLastSyncTime(to);
-      return res.status(200).json({ success: true, synced: 0, message: "No fills in window" });
-    }
-
-    const events = buildEvents(fills);
-    const trades  = pairEvents(events);
-    console.log(`\n${trades.length} trades paired from ${fills.length} fills`);
-
-    // Dedup against already-imported trades
-    const existing = await sbFetch(
-      `/trades?select=notes&trade_mode=eq.Live&notes=like.Auto-synced*&limit=5000`
-    );
-    const knownIds = new Set(
-      (existing || []).flatMap(r => {
-        const m = r.notes?.match(/tsx_id:([^\s|]+)/);
-        return m ? [m[1]] : [];
-      })
-    );
-
-    const newTrades = trades.filter(t => {
-      const m = t.notes?.match(/tsx_id:([^\s|]+)/);
-      return m ? !knownIds.has(m[1]) : true;
-    });
-
-    console.log(`${newTrades.length} new | ${trades.length - newTrades.length} already imported`);
-
-    if (newTrades.length > 0) {
-      await sbFetch(`/trades`, {
-        method: "POST",
-        headers: { "Prefer": "return=minimal" },
-        body:    JSON.stringify(newTrades),
-      });
-    }
-
-    await setLastSyncTime(to);
-
-    return res.status(200).json({
-      success:  true,
-      synced:   newTrades.length,
-      skipped:  trades.length - newTrades.length,
-      fills:    fills.length,
-      trades:   trades.length,
-      from:     from.toISOString(),
-      to:       to.toISOString(),
-    });
-
-  } catch(err) {
-    console.error("Sync error:", err.message);
     return res.status(500).json({ error: err.message });
   }
 }
