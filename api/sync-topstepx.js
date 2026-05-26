@@ -201,11 +201,11 @@ function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl,
   const isMicro  = (openFill.contractId || "").includes("MGC");
   const tsxId    = [openFill.id, closeFill.id].sort().join("_");
 
-  // Auto SL: $150 risk ÷ $10/pt = 1.5 price units from entry (50k account, 1 contract)
-  const SL_DIST  = 1.5;
+  // Auto SL: $150 risk ÷ $10/pt = 15 points from entry, rounded to whole number
+  const SL_DIST  = 15;
   const stopLoss = direction === "Long"
-    ? parseFloat((entry - SL_DIST).toFixed(1))
-    : parseFloat((entry + SL_DIST).toFixed(1));
+    ? Math.round(entry - SL_DIST)
+    : Math.round(entry + SL_DIST);
 
   // Take profit = actual exit price (where you closed)
   const takeProfit = exit;
