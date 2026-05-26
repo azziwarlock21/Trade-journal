@@ -201,6 +201,28 @@ function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl,
   const isMicro  = (openFill.contractId || "").includes("MGC");
   const tsxId    = [openFill.id, closeFill.id].sort().join("_");
 
+  // Auto SL: $150 risk ÷ $10/pt = 1.5 price units from entry (50k account, 1 contract)
+  const SL_DIST  = 1.5;
+  const stopLoss = direction === "Long"
+    ? parseFloat((entry - SL_DIST).toFixed(1))
+    : parseFloat((entry + SL_DIST).toFixed(1));
+
+  // Take profit = actual exit price (where you closed)
+  const takeProfit = exit;
+
+  // RRR = points gained ÷ SL distance in points
+  // SL distance always = 1.5 pts = $15 per contract
+  // Win:  TP dist / SL dist. Loss: -1 (lost full SL)
+  let rrr = null;
+  if (outcome === "Win") {
+    const tpDist = Math.abs(exit - entry);
+    rrr = (tpDist / SL_DIST).toFixed(2);
+  } else if (outcome === "Loss") {
+    rrr = "-1.00";
+  } else {
+    rrr = "0.00";
+  }
+
   // Log for debugging
   console.log(
     `  ${direction} ${contracts}x | ${entry} → ${exit}` +
@@ -215,10 +237,10 @@ function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl,
     direction,
     lot_size:         contracts,
     entry_price:      entry,
-    stop_loss:        null,   // not available from TSX fills — fill in manually or via bulk edit
-    take_profit:      null,
+    stop_loss:        stopLoss,
+    take_profit:      takeProfit,
     points:           String(points),
-    rrr:              null,   // fill in manually after adding SL/TP
+    rrr:              rrr,
     outcome,
     mae:              null,
     session:          getSession(openFill.creationTimestamp),
