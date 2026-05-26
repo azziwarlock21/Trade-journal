@@ -305,16 +305,19 @@ const defaultForm = () => ({
   outcome: "Win", maePrice: "", mae: "", notes: "", screenshots: [],
 });
 
+// MGC: 1 price unit = 10 dollars = 1 point in journal terms
+// Points = price difference (e.g. entry 4554.1 → exit 4533.6 short = +20.5 pts)
+// Do NOT multiply by 10 — that was the old formula for a different contract spec
 function calcPointsFromOutcome(entry, sl, tp, direction, outcome) {
   if (!entry || !sl) return "";
   if (outcome === "Win") {
     if (!tp) return "";
     const pts = direction === "Long" ? tp - entry : entry - tp;
-    return (pts * 10).toFixed(1);
+    return pts.toFixed(1);
   }
   if (outcome === "Loss") {
     const pts = direction === "Long" ? sl - entry : entry - sl;
-    return (pts * 10).toFixed(1); // will be negative
+    return pts.toFixed(1); // negative for losses
   }
   if (outcome === "Breakeven") return "0.0";
   return "";
@@ -789,10 +792,20 @@ export default function GCJournal() {
       const sl    = parseFloat(next.stopLoss);
       const tp    = parseFloat(next.takeProfit);
 
-      // Recalculate points and RRR whenever any of the 4 inputs change
-      if (!isNaN(entry) && !isNaN(sl)) {
-        next.points = calcPointsFromOutcome(entry, sl, isNaN(tp) ? null : tp, next.direction, next.outcome);
-        next.rrr    = calcRRRFromOutcome(entry, sl, isNaN(tp) ? null : tp, next.direction, next.outcome);
+      // Auto-calculate SL: $150 risk ÷ $10/pt = 1.5 price units from entry
+      // Only auto-set if entry price or direction just changed AND user hasn't manually set SL
+      if ((k === "entryPrice" || k === "direction") && !isNaN(entry) && next.direction) {
+        const slDist = 1.5;
+        next.stopLoss = next.direction === "Long"
+          ? (entry - slDist).toFixed(1)
+          : (entry + slDist).toFixed(1);
+      }
+
+      // Recalculate points and RRR whenever any of the inputs change
+      const slCalc = parseFloat(next.stopLoss);
+      if (!isNaN(entry) && !isNaN(slCalc)) {
+        next.points = calcPointsFromOutcome(entry, slCalc, isNaN(tp) ? null : tp, next.direction, next.outcome);
+        next.rrr    = calcRRRFromOutcome(entry, slCalc, isNaN(tp) ? null : tp, next.direction, next.outcome);
       }
 
       // Auto-calculate MAE from maePrice
@@ -800,8 +813,8 @@ export default function GCJournal() {
       const entryP = parseFloat(next.entryPrice);
       if (!isNaN(maeP) && !isNaN(entryP) && next.direction) {
         const maePts = next.direction === "Long"
-          ? (entryP - maeP) * 10
-          : (maeP - entryP) * 10;
+          ? entryP - maeP
+          : maeP - entryP;
         next.mae = maePts > 0 ? maePts.toFixed(1) : "0.0";
       }
       return next;
@@ -919,7 +932,7 @@ export default function GCJournal() {
         const maeP = parseFloat(pos.maePrice);
         let mae = "";
         if (!isNaN(maeP) && !isNaN(ep)) {
-          const raw = dir === "Long" ? (ep - maeP) * 10 : (maeP - ep) * 10;
+          const raw = dir === "Long" ? (ep - maeP) : (maeP - ep);
           mae = raw > 0 ? raw.toFixed(1) : "0.0";
         }
 
@@ -1599,8 +1612,9 @@ export default function GCJournal() {
                 <label style={lbl}>
                   Stop Loss
                   <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316", fontWeight: 700 }} title="Confluence: SL placed behind structure">◆</span>
+                  {autoBadge}
                 </label>
-                <input type="number" step="0.1" value={form.stopLoss} onChange={e => set("stopLoss", e.target.value)} placeholder="2345.0" style={inp} />
+                <input type="number" step="0.1" value={form.stopLoss} onChange={e => set("stopLoss", e.target.value)} placeholder="Auto from entry" style={{ ...inp, border: form.stopLoss ? "1px solid #ff4d6d44" : "1px solid #2a2f3a" }} />
               </div>
 
               <div><label style={lbl}>Take Profit</label><input type="number" step="0.1" value={form.takeProfit} onChange={e => set("takeProfit", e.target.value)} placeholder="2370.0" style={inp} /></div>
@@ -1723,7 +1737,7 @@ export default function GCJournal() {
                   const maeP = parseFloat(pos.maePrice);
                   let rowMAE = "";
                   if (!isNaN(maeP) && !isNaN(ep) && dir) {
-                    const raw = dir === "Long" ? (ep - maeP) * 10 : (maeP - ep) * 10;
+                    const raw = dir === "Long" ? (ep - maeP) : (maeP - ep);
                     rowMAE = raw > 0 ? raw.toFixed(1) : "0.0";
                   }
                   return (
