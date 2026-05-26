@@ -792,13 +792,13 @@ export default function GCJournal() {
       const sl    = parseFloat(next.stopLoss);
       const tp    = parseFloat(next.takeProfit);
 
-      // Auto-calculate SL: $150 risk ÷ $10/pt = 1.5 price units from entry
-      // Only auto-set if entry price or direction just changed AND user hasn't manually set SL
+      // Auto-calculate SL: $150 risk ÷ $10/pt = 15 points from entry, rounded to whole number
+      // Only auto-set if entry price or direction just changed
       if ((k === "entryPrice" || k === "direction") && !isNaN(entry) && next.direction) {
-        const slDist = 1.5;
+        const slDist = 15; // 15 points = $150 at $10/pt for MGC
         next.stopLoss = next.direction === "Long"
-          ? (entry - slDist).toFixed(1)
-          : (entry + slDist).toFixed(1);
+          ? Math.round(entry - slDist).toString()
+          : Math.round(entry + slDist).toString();
       }
 
       // Recalculate points and RRR whenever any of the inputs change
