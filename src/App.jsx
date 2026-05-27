@@ -637,7 +637,15 @@ export default function GCJournal() {
 
   useEffect(() => {
     const loadFinancial = async () => {
-      // Try Supabase first
+      // Step 1: Load from localStorage immediately (instant, no network)
+      try {
+        const lp = localStorage.getItem("gc_payouts");
+        const le = localStorage.getItem("gc_expenses");
+        if (lp) setPayouts(JSON.parse(lp));
+        if (le) setExpenses(JSON.parse(le));
+      } catch(e) { /* use defaults */ }
+
+      // Step 2: Try Supabase — if it has newer data, use that instead
       try {
         const res = await fetch(
           `${SUPABASE_URL}/rest/v1/sync_log?id=in.(gc_payouts,gc_expenses)&select=id,last_sync`,
@@ -647,20 +655,19 @@ export default function GCJournal() {
           const rows = await res.json();
           const pr = rows.find(r => r.id === "gc_payouts");
           const er = rows.find(r => r.id === "gc_expenses");
-          if (pr?.last_sync) { try { setPayouts(JSON.parse(pr.last_sync)); } catch(e) {} }
-          if (er?.last_sync) { try { setExpenses(JSON.parse(er.last_sync)); } catch(e) {} }
-          setFinLoaded(true);
-          return;
+          if (pr?.last_sync) {
+            const parsed = JSON.parse(pr.last_sync);
+            setPayouts(parsed);
+            localStorage.setItem("gc_payouts", pr.last_sync);
+          }
+          if (er?.last_sync) {
+            const parsed = JSON.parse(er.last_sync);
+            setExpenses(parsed);
+            localStorage.setItem("gc_expenses", er.last_sync);
+          }
         }
-      } catch(e) { /* fall through to localStorage */ }
+      } catch(e) { /* stick with localStorage data */ }
 
-      // Fallback: localStorage
-      try {
-        const lp = localStorage.getItem("gc_gc_payouts");
-        const le = localStorage.getItem("gc_gc_expenses");
-        if (lp) setPayouts(JSON.parse(lp));
-        if (le) setExpenses(JSON.parse(le));
-      } catch(e) { /* use defaults */ }
       setFinLoaded(true);
     };
     loadFinancial();
@@ -670,23 +677,21 @@ export default function GCJournal() {
 
   const persistData = async (id, data) => {
     const json = JSON.stringify(data);
-    // Always save to localStorage as immediate backup
-    try { localStorage.setItem(`gc_${id}`, json); } catch(e) { /* ignore */ }
 
-    // Then sync to Supabase — try PATCH first, then POST if no rows matched
+    // Always write to localStorage first — instant, no network dependency
+    try { localStorage.setItem(id, json); } catch(e) { /* ignore */ }
+
+    // Then attempt Supabase sync
     try {
       const body = JSON.stringify({ id, last_sync: json, updated_at: new Date().toISOString() });
       const h    = { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
 
-      // PATCH returns 204 even if no rows matched — check count header
       const patch = await fetch(`${SUPABASE_URL}/rest/v1/sync_log?id=eq.${id}`, {
         method: "PATCH",
         headers: { ...h, "Prefer": "return=representation" },
         body,
       });
       const patched = await patch.json().catch(() => []);
-
-      // If nothing was updated, insert instead
       if (!Array.isArray(patched) || patched.length === 0) {
         await fetch(`${SUPABASE_URL}/rest/v1/sync_log`, {
           method: "POST",
@@ -695,8 +700,7 @@ export default function GCJournal() {
         });
       }
     } catch(e) {
-      console.warn(`persistData ${id} Supabase error:`, e.message);
-      // localStorage already saved — data not lost
+      console.warn(`Supabase sync failed for ${id}:`, e.message);
     }
   };
 
