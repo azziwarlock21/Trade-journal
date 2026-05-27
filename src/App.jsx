@@ -637,6 +637,7 @@ export default function GCJournal() {
 
   useEffect(() => {
     const loadFinancial = async () => {
+      // Try Supabase first
       try {
         const res = await fetch(
           `${SUPABASE_URL}/rest/v1/sync_log?id=in.(gc_payouts,gc_expenses)&select=id,last_sync`,
@@ -648,7 +649,17 @@ export default function GCJournal() {
           const er = rows.find(r => r.id === "gc_expenses");
           if (pr?.last_sync) { try { setPayouts(JSON.parse(pr.last_sync)); } catch(e) {} }
           if (er?.last_sync) { try { setExpenses(JSON.parse(er.last_sync)); } catch(e) {} }
+          setFinLoaded(true);
+          return;
         }
+      } catch(e) { /* fall through to localStorage */ }
+
+      // Fallback: localStorage
+      try {
+        const lp = localStorage.getItem("gc_gc_payouts");
+        const le = localStorage.getItem("gc_gc_expenses");
+        if (lp) setPayouts(JSON.parse(lp));
+        if (le) setExpenses(JSON.parse(le));
       } catch(e) { /* use defaults */ }
       setFinLoaded(true);
     };
@@ -658,16 +669,35 @@ export default function GCJournal() {
   const sbHeaders2 = { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
 
   const persistData = async (id, data) => {
-    const body = JSON.stringify({ id, last_sync: JSON.stringify(data), updated_at: new Date().toISOString() });
-    // Use upsert (POST with Prefer: resolution=merge-duplicates) — works whether row exists or not
-    await fetch(`${SUPABASE_URL}/rest/v1/sync_log`, {
-      method: "POST",
-      headers: {
-        ...sbHeaders2,
-        "Prefer": "resolution=merge-duplicates,return=minimal",
-      },
-      body,
-    });
+    const json = JSON.stringify(data);
+    // Always save to localStorage as immediate backup
+    try { localStorage.setItem(`gc_${id}`, json); } catch(e) { /* ignore */ }
+
+    // Then sync to Supabase — try PATCH first, then POST if no rows matched
+    try {
+      const body = JSON.stringify({ id, last_sync: json, updated_at: new Date().toISOString() });
+      const h    = { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` };
+
+      // PATCH returns 204 even if no rows matched — check count header
+      const patch = await fetch(`${SUPABASE_URL}/rest/v1/sync_log?id=eq.${id}`, {
+        method: "PATCH",
+        headers: { ...h, "Prefer": "return=representation" },
+        body,
+      });
+      const patched = await patch.json().catch(() => []);
+
+      // If nothing was updated, insert instead
+      if (!Array.isArray(patched) || patched.length === 0) {
+        await fetch(`${SUPABASE_URL}/rest/v1/sync_log`, {
+          method: "POST",
+          headers: { ...h, "Prefer": "return=minimal" },
+          body,
+        });
+      }
+    } catch(e) {
+      console.warn(`persistData ${id} Supabase error:`, e.message);
+      // localStorage already saved — data not lost
+    }
   };
 
   const savePayout = async () => {
