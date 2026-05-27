@@ -254,13 +254,7 @@ function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl,
     news_impact:      "Low",
     htf_bias:         null,
     market_structure: null,
-    notes: [
-      `Auto-synced from TopstepX | tsx_id:${tsxId}`,
-      `P&L: $${pnl.toFixed(2)}`,
-      `Fees: $${fees.toFixed(2)}`,
-      `${isMicro ? "MGC" : "GC"} @ $${pv}/pt`,
-      contracts > 1 ? `${contracts} contracts` : null,
-    ].filter(Boolean).join(" | "),
+    notes: `tsx_id:${tsxId} | P&L: $${pnl.toFixed(2)} | Fees: $${fees.toFixed(2)}`,
     screenshot:       null,
     screenshot_name:  null,
   };
@@ -328,7 +322,7 @@ export default async function handler(req, res) {
 
     // Dedup
     const existing = await sbFetch(
-      `/trades?select=notes&trade_mode=eq.Live&notes=like.Auto-synced*&limit=5000`
+      `/trades?select=notes&trade_mode=eq.Live&notes=like.tsx_id*&limit=5000`
     );
     const knownIds = new Set(
       (existing || []).flatMap(r => {
