@@ -125,7 +125,6 @@ const HTF_BIASES = ["Bullish","Bearish","Ranging","Uncertain"];
 const MARKET_STRUCTURES = ["With Trend","Counter Trend","Range","Breakout","Reversal"];
 const TRADE_MODES = ["Backtest","Paper","Live"];
 const TIMEZONES = [
-  { label: "Germany (CET/CEST)", tz: "Europe/Berlin" },
   { label: "New York (ET)", tz: "America/New_York" },
 ];
 
@@ -427,7 +426,7 @@ export default function GCJournal() {
   ]);
   const [syncError, setSyncError]         = useState("");
   const [form, setForm]                   = useState(defaultForm());
-  const [view, setView]                   = useState("journal");
+  const [view, setView]                   = useState(() => localStorage.getItem("gc_last_view") || "journal");
   const [editId, setEditId]               = useState(null);
   const [filterGrade, setFilterGrade]     = useState("All");
   const [filterOutcome, setFilterOutcome] = useState("All");
@@ -442,7 +441,7 @@ export default function GCJournal() {
     grade: "", executionGrade: "", stopLoss: "", takeProfit: "",
     news: "", newsImpact: "", notes: "",
   });
-  const [userTz, setUserTz]               = useState("Europe/Berlin");
+  const [userTz, setUserTz]               = useState("America/New_York");
   const [sessionOverridden, setSessionOverridden] = useState(false);
   const [lightboxSrc, setLightboxSrc]     = useState(null);
   const [lbZoom, setLbZoom]               = useState(1);
@@ -1492,7 +1491,7 @@ export default function GCJournal() {
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           {["journal","log","analytics","rules","calc","coach","payouts","tax","expenses"].map(v => (
-            <button key={v} onClick={() => setView(v)} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${view === v ? "#f5c842" : "#2a2f3a"}`, background: view === v ? "rgba(245,200,66,0.1)" : "transparent", color: view === v ? "#f5c842" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
+            <button key={v} onClick={() => { setView(v); localStorage.setItem("gc_last_view", v); }} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${view === v ? "#f5c842" : "#2a2f3a"}`, background: view === v ? "rgba(245,200,66,0.1)" : "transparent", color: view === v ? "#f5c842" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
               {v === "calc" ? "Position" : v === "coach" ? "AI Coach" : v}
             </button>
           ))}
@@ -1506,9 +1505,6 @@ export default function GCJournal() {
           <button onClick={() => { if (window.confirm("This clears the sync history and re-imports ALL trades from TopstepX. Continue?")) triggerSync(true); }} disabled={syncRunning} title="Reset and re-import all TopstepX trades" style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #a78bfa44", background: "transparent", color: syncRunning ? "#6b7280" : "#a78bfa", fontSize: 10, fontWeight: 700, cursor: syncRunning ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
             TSX Full
           </button>
-          <select value={userTz} onChange={e => { setUserTz(e.target.value); setSessionOverridden(false); }} style={{ background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "7px 10px", color: "#f5c842", fontSize: 10, fontFamily: "inherit" }}>
-            {TIMEZONES.map(t => <option key={t.tz} value={t.tz}>{t.label}</option>)}
-          </select>
         </div>
       </div>
 
