@@ -659,14 +659,15 @@ export default function GCJournal() {
 
   const persistData = async (id, data) => {
     const body = JSON.stringify({ id, last_sync: JSON.stringify(data), updated_at: new Date().toISOString() });
-    const patch = await fetch(`${SUPABASE_URL}/rest/v1/sync_log?id=eq.${id}`, {
-      method: "PATCH", headers: { ...sbHeaders2, "Prefer": "return=minimal" }, body,
+    // Use upsert (POST with Prefer: resolution=merge-duplicates) — works whether row exists or not
+    await fetch(`${SUPABASE_URL}/rest/v1/sync_log`, {
+      method: "POST",
+      headers: {
+        ...sbHeaders2,
+        "Prefer": "resolution=merge-duplicates,return=minimal",
+      },
+      body,
     });
-    if (!patch.ok) {
-      await fetch(`${SUPABASE_URL}/rest/v1/sync_log`, {
-        method: "POST", headers: { ...sbHeaders2, "Prefer": "return=minimal" }, body,
-      });
-    }
   };
 
   const savePayout = async () => {
@@ -712,12 +713,13 @@ export default function GCJournal() {
   const [syncRunning, setSyncRunning]     = useState(false);
 
   // ── Position Calculator state ──────────────────────────────────────────
-  const [calcAccount, setCalcAccount]     = useState("100000");
+  const [calcAccount, setCalcAccount]     = useState("50000");
   const [calcRisk, setCalcRisk]           = useState("0.5");
   const [calcEntry, setCalcEntry]         = useState("");
   const [calcSL, setCalcSL]               = useState("");
   const [calcTP, setCalcTP]               = useState("");
   const [calcDir, setCalcDir]             = useState("Long");
+  const [calcContract, setCalcContract]   = useState("MGC"); // MGC=$10/pt, GC=$100/pt
   const fileRef       = useRef();
   const importRef     = useRef();
   const dropZoneRef   = useRef();
@@ -2310,8 +2312,9 @@ export default function GCJournal() {
 
       {/* ═══ POSITION CALCULATOR ═══ */}
       {!loading && view === "calc" && (() => {
-        // GC contract spec: 1 lot = 100 troy oz, tick = $0.10/oz = $10/tick, 1 point = $100
-        const GC_POINT_VALUE = 100; // $ per full point per lot
+        // MGC (Micro Gold): 1 point = $10/contract
+        // GC  (Full  Gold): 1 point = $100/contract
+        const POINT_VALUE = calcContract === "MGC" ? 10 : 100;
         const account  = parseFloat(calcAccount) || 0;
         const riskPct  = parseFloat(calcRisk) / 100;
         const entry    = parseFloat(calcEntry);
@@ -2326,14 +2329,14 @@ export default function GCJournal() {
         if (!isNaN(entry) && !isNaN(sl) && entry !== sl) {
           slPoints = calcDir === "Long" ? (entry - sl) : (sl - entry);
           if (slPoints > 0) {
-            lotSize = riskDollars / (slPoints * GC_POINT_VALUE);
-            lossAmt = lotSize * slPoints * GC_POINT_VALUE;
+            lotSize = riskDollars / (slPoints * POINT_VALUE);
+            lossAmt = lotSize * slPoints * POINT_VALUE;
           }
         }
         if (!isNaN(entry) && !isNaN(tp) && entry !== tp) {
           tpPoints = calcDir === "Long" ? (tp - entry) : (entry - tp);
           if (tpPoints > 0 && lotSize) {
-            winAmt = lotSize * tpPoints * GC_POINT_VALUE;
+            winAmt = lotSize * tpPoints * POINT_VALUE;
           }
         }
         if (slPoints > 0 && tpPoints > 0) {
@@ -2391,6 +2394,17 @@ export default function GCJournal() {
               <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3, textTransform: "uppercase", marginBottom: 14, fontWeight: 700 }}>Trade Levels</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14 }}>
                 <div>
+                  <label style={clbl}>Contract</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {["MGC","GC"].map(c => (
+                      <button key={c} onClick={() => setCalcContract(c)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: `1px solid ${calcContract === c ? "#f5c842" : "#2a2f3a"}`, background: calcContract === c ? "rgba(245,200,66,0.12)" : "transparent", color: calcContract === c ? "#f5c842" : "#6b7280", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 9, color: "#4b5563", marginTop: 4 }}>${calcContract === "MGC" ? "10" : "100"}/pt per contract</div>
+                </div>
+                <div>
                   <label style={clbl}>Direction</label>
                   <div style={{ display: "flex", gap: 8 }}>
                     {["Long","Short"].map(d => (
@@ -2417,7 +2431,7 @@ export default function GCJournal() {
 
             {/* Results */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
-              {card("Lot Size", fmt(lotSize), "#f5c842", "GC contracts to trade")}
+              {card("Lot Size", fmt(lotSize), "#f5c842", `${calcContract} contracts to trade`)}
               {card("SL Distance", slPoints > 0 ? `${slPoints.toFixed(1)} pts` : "--", "#ff4d6d", slPoints > 0 ? `${(slPoints * 10).toFixed(0)} ticks` : null)}
               {card("TP Distance", tpPoints > 0 ? `${tpPoints.toFixed(1)} pts` : "--", "#00e5a0", tpPoints > 0 ? `${(tpPoints * 10).toFixed(0)} ticks` : null)}
               {card("RRR", rrr || "--", parseFloat(rrr) >= 2 ? "#00e5a0" : parseFloat(rrr) >= 1 ? "#f5c842" : "#ff4d6d", rrr ? (parseFloat(rrr) >= 2 ? "✓ Meets minimum" : "⚠ Below 1:2 target") : null)}
@@ -2428,20 +2442,22 @@ export default function GCJournal() {
             {/* Info box */}
             <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: "14px 18px", display: "flex", gap: 24, flexWrap: "wrap" }}>
               <div>
-                <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>GC Contract Spec</div>
+                <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>{calcContract} Contract Spec</div>
                 <div style={{ fontSize: 11, color: "#4b5563", lineHeight: 1.8 }}>
-                  1 lot = 100 troy oz &nbsp;·&nbsp; 1 point = $100 &nbsp;·&nbsp; 1 tick = $10
+                  {calcContract === "MGC"
+                    ? "1 lot = 10 troy oz · 1 point = $10 · 1 tick = $1"
+                    : "1 lot = 100 troy oz · 1 point = $100 · 1 tick = $10"}
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Formula</div>
                 <div style={{ fontSize: 11, color: "#4b5563", lineHeight: 1.8 }}>
-                  Lot Size = Risk $ ÷ (SL points × $100)
+                  Lot Size = Risk $ ÷ (SL points × ${POINT_VALUE})
                 </div>
               </div>
-              {lotSize !== null && lotSize > 0 && (
+              {calcContract === "GC" && lotSize !== null && lotSize > 0 && (
                 <div>
-                  <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Micro Lots</div>
+                  <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Micro Equivalent</div>
                   <div style={{ fontSize: 11, color: "#4b5563", lineHeight: 1.8 }}>
                     MGC = {(lotSize * 10).toFixed(1)} contracts (1/10th size)
                   </div>
