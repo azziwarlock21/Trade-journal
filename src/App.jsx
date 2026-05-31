@@ -233,6 +233,126 @@ const NEWS_CALENDAR = [
   ["2026-03-12","08:30","Unemployment Claims","Medium"],["2026-03-13","08:30","PPI","High"],
   ["2026-03-18","14:00","FOMC","High"],["2026-03-19","08:30","Unemployment Claims","Medium"],
   ["2026-03-26","08:30","Unemployment Claims","Medium"],
+  // 2026 Q2
+  ["2026-04-02","08:30","Unemployment Claims","Medium"],["2026-04-03","08:30","NFP","High"],
+  ["2026-04-08","08:30","CPI","High"],["2026-04-09","08:30","PPI","High"],
+  ["2026-04-09","08:30","Unemployment Claims","Medium"],["2026-04-16","08:30","Unemployment Claims","Medium"],
+  ["2026-04-23","08:30","Unemployment Claims","Medium"],["2026-04-29","14:00","FOMC","High"],
+  ["2026-04-30","08:30","Unemployment Claims","Medium"],
+  ["2026-05-07","08:30","Unemployment Claims","Medium"],["2026-05-08","08:30","NFP","High"],
+  ["2026-05-13","08:30","CPI","High"],["2026-05-14","08:30","PPI","High"],
+  ["2026-05-14","08:30","Unemployment Claims","Medium"],["2026-05-21","08:30","Unemployment Claims","Medium"],
+  ["2026-05-28","08:30","Unemployment Claims","Medium"],
+  ["2026-06-04","08:30","Unemployment Claims","Medium"],["2026-06-05","08:30","NFP","High"],
+  ["2026-06-10","08:30","CPI","High"],["2026-06-11","08:30","PPI","High"],
+  ["2026-06-11","08:30","Unemployment Claims","Medium"],["2026-06-17","14:00","FOMC","High"],
+  ["2026-06-18","08:30","Unemployment Claims","Medium"],["2026-06-25","08:30","Unemployment Claims","Medium"],
+  // 2026 Q3
+  ["2026-07-02","08:30","Unemployment Claims","Medium"],["2026-07-02","08:30","NFP","High"],
+  ["2026-07-09","08:30","Unemployment Claims","Medium"],["2026-07-15","08:30","CPI","High"],
+  ["2026-07-16","08:30","PPI","High"],["2026-07-16","08:30","Unemployment Claims","Medium"],
+  ["2026-07-23","08:30","Unemployment Claims","Medium"],["2026-07-29","14:00","FOMC","High"],
+  ["2026-07-30","08:30","Unemployment Claims","Medium"],
+  ["2026-08-06","08:30","Unemployment Claims","Medium"],["2026-08-07","08:30","NFP","High"],
+  ["2026-08-12","08:30","CPI","High"],["2026-08-13","08:30","PPI","High"],
+  ["2026-08-13","08:30","Unemployment Claims","Medium"],["2026-08-20","08:30","Unemployment Claims","Medium"],
+  ["2026-08-27","08:30","Unemployment Claims","Medium"],["2026-08-28","10:00","Jerome Powell Speech","High"],
+  ["2026-09-03","08:30","Unemployment Claims","Medium"],["2026-09-04","08:30","NFP","High"],
+  ["2026-09-09","08:30","CPI","High"],["2026-09-10","08:30","PPI","High"],
+  ["2026-09-10","08:30","Unemployment Claims","Medium"],["2026-09-16","14:00","FOMC","High"],
+  ["2026-09-17","08:30","Unemployment Claims","Medium"],["2026-09-24","08:30","Unemployment Claims","Medium"],
+  // 2026 Q4
+  ["2026-10-01","08:30","Unemployment Claims","Medium"],["2026-10-02","08:30","NFP","High"],
+  ["2026-10-08","08:30","Unemployment Claims","Medium"],["2026-10-14","08:30","CPI","High"],
+  ["2026-10-15","08:30","PPI","High"],["2026-10-15","08:30","Unemployment Claims","Medium"],
+  ["2026-10-22","08:30","Unemployment Claims","Medium"],["2026-10-28","14:00","FOMC","High"],
+  ["2026-10-29","08:30","Unemployment Claims","Medium"],
+  ["2026-11-05","08:30","Unemployment Claims","Medium"],["2026-11-06","08:30","NFP","High"],
+  ["2026-11-12","08:30","CPI","High"],["2026-11-13","08:30","PPI","High"],
+  ["2026-11-12","08:30","Unemployment Claims","Medium"],["2026-11-19","08:30","Unemployment Claims","Medium"],
+  ["2026-11-25","08:30","Unemployment Claims","Medium"],
+  ["2026-12-03","08:30","Unemployment Claims","Medium"],["2026-12-04","08:30","NFP","High"],
+  ["2026-12-09","08:30","CPI","High"],["2026-12-10","08:30","PPI","High"],
+  ["2026-12-10","08:30","Unemployment Claims","Medium"],["2026-12-16","14:00","FOMC","High"],
+  ["2026-12-17","08:30","Unemployment Claims","Medium"],["2026-12-24","08:30","Unemployment Claims","Medium"],
+  // 2027 Q1
+  ["2027-01-07","08:30","Unemployment Claims","Medium"],["2027-01-08","08:30","NFP","High"],
+  ["2027-01-13","08:30","CPI","High"],["2027-01-14","08:30","PPI","High"],
+  ["2027-01-14","08:30","Unemployment Claims","Medium"],["2027-01-21","08:30","Unemployment Claims","Medium"],
+  ["2027-01-27","14:00","FOMC","High"],["2027-01-28","08:30","Unemployment Claims","Medium"],
+  ["2027-02-04","08:30","Unemployment Claims","Medium"],["2027-02-05","08:30","NFP","High"],
+  ["2027-02-10","08:30","CPI","High"],["2027-02-11","08:30","PPI","High"],
+  ["2027-02-11","08:30","Unemployment Claims","Medium"],["2027-02-18","08:30","Unemployment Claims","Medium"],
+  ["2027-02-25","08:30","Unemployment Claims","Medium"],
+  ["2027-03-04","08:30","Unemployment Claims","Medium"],["2027-03-05","08:30","NFP","High"],
+  ["2027-03-10","08:30","CPI","High"],["2027-03-11","08:30","PPI","High"],
+  ["2027-03-11","08:30","Unemployment Claims","Medium"],["2027-03-17","14:00","FOMC","High"],
+  ["2027-03-18","08:30","Unemployment Claims","Medium"],["2027-03-25","08:30","Unemployment Claims","Medium"],
+  // 2027 Q2
+  ["2027-04-01","08:30","Unemployment Claims","Medium"],["2027-04-02","08:30","NFP","High"],
+  ["2027-04-07","08:30","CPI","High"],["2027-04-08","08:30","PPI","High"],
+  ["2027-04-08","08:30","Unemployment Claims","Medium"],["2027-04-15","08:30","Unemployment Claims","Medium"],
+  ["2027-04-22","08:30","Unemployment Claims","Medium"],["2027-04-28","14:00","FOMC","High"],
+  ["2027-04-29","08:30","Unemployment Claims","Medium"],
+  ["2027-05-06","08:30","Unemployment Claims","Medium"],["2027-05-07","08:30","NFP","High"],
+  ["2027-05-12","08:30","CPI","High"],["2027-05-13","08:30","PPI","High"],
+  ["2027-05-13","08:30","Unemployment Claims","Medium"],["2027-05-20","08:30","Unemployment Claims","Medium"],
+  ["2027-05-27","08:30","Unemployment Claims","Medium"],
+  ["2027-06-03","08:30","Unemployment Claims","Medium"],["2027-06-04","08:30","NFP","High"],
+  ["2027-06-09","08:30","CPI","High"],["2027-06-10","08:30","PPI","High"],
+  ["2027-06-10","08:30","Unemployment Claims","Medium"],["2027-06-16","14:00","FOMC","High"],
+  ["2027-06-17","08:30","Unemployment Claims","Medium"],["2027-06-24","08:30","Unemployment Claims","Medium"],
+  // 2027 Q3
+  ["2027-07-01","08:30","Unemployment Claims","Medium"],["2027-07-02","08:30","NFP","High"],
+  ["2027-07-08","08:30","Unemployment Claims","Medium"],["2027-07-14","08:30","CPI","High"],
+  ["2027-07-15","08:30","PPI","High"],["2027-07-15","08:30","Unemployment Claims","Medium"],
+  ["2027-07-22","08:30","Unemployment Claims","Medium"],["2027-07-28","14:00","FOMC","High"],
+  ["2027-07-29","08:30","Unemployment Claims","Medium"],
+  ["2027-08-05","08:30","Unemployment Claims","Medium"],["2027-08-06","08:30","NFP","High"],
+  ["2027-08-11","08:30","CPI","High"],["2027-08-12","08:30","PPI","High"],
+  ["2027-08-12","08:30","Unemployment Claims","Medium"],["2027-08-19","08:30","Unemployment Claims","Medium"],
+  ["2027-08-26","08:30","Unemployment Claims","Medium"],["2027-08-27","10:00","Jerome Powell Speech","High"],
+  ["2027-09-02","08:30","Unemployment Claims","Medium"],["2027-09-03","08:30","NFP","High"],
+  ["2027-09-08","08:30","CPI","High"],["2027-09-09","08:30","PPI","High"],
+  ["2027-09-09","08:30","Unemployment Claims","Medium"],["2027-09-15","14:00","FOMC","High"],
+  ["2027-09-16","08:30","Unemployment Claims","Medium"],["2027-09-23","08:30","Unemployment Claims","Medium"],
+  // 2027 Q4
+  ["2027-09-30","08:30","Unemployment Claims","Medium"],["2027-10-01","08:30","NFP","High"],
+  ["2027-10-07","08:30","Unemployment Claims","Medium"],["2027-10-13","08:30","CPI","High"],
+  ["2027-10-14","08:30","PPI","High"],["2027-10-14","08:30","Unemployment Claims","Medium"],
+  ["2027-10-21","08:30","Unemployment Claims","Medium"],["2027-10-27","14:00","FOMC","High"],
+  ["2027-10-28","08:30","Unemployment Claims","Medium"],
+  ["2027-11-04","08:30","Unemployment Claims","Medium"],["2027-11-05","08:30","NFP","High"],
+  ["2027-11-10","08:30","CPI","High"],["2027-11-11","08:30","PPI","High"],
+  ["2027-11-11","08:30","Unemployment Claims","Medium"],["2027-11-18","08:30","Unemployment Claims","Medium"],
+  ["2027-11-24","08:30","Unemployment Claims","Medium"],
+  ["2027-12-02","08:30","Unemployment Claims","Medium"],["2027-12-03","08:30","NFP","High"],
+  ["2027-12-08","08:30","CPI","High"],["2027-12-09","08:30","PPI","High"],
+  ["2027-12-09","08:30","Unemployment Claims","Medium"],["2027-12-15","14:00","FOMC","High"],
+  ["2027-12-16","08:30","Unemployment Claims","Medium"],["2027-12-23","08:30","Unemployment Claims","Medium"],
+  // 2028 Q1
+  ["2027-12-30","08:30","Unemployment Claims","Medium"],["2028-01-06","08:30","NFP","High"],
+  ["2028-01-11","08:30","CPI","High"],["2028-01-12","08:30","PPI","High"],
+  ["2028-01-12","08:30","Unemployment Claims","Medium"],["2028-01-19","08:30","Unemployment Claims","Medium"],
+  ["2028-01-26","14:00","FOMC","High"],["2028-01-27","08:30","Unemployment Claims","Medium"],
+  ["2028-02-03","08:30","Unemployment Claims","Medium"],["2028-02-04","08:30","NFP","High"],
+  ["2028-02-09","08:30","CPI","High"],["2028-02-10","08:30","PPI","High"],
+  ["2028-02-10","08:30","Unemployment Claims","Medium"],["2028-02-17","08:30","Unemployment Claims","Medium"],
+  ["2028-02-24","08:30","Unemployment Claims","Medium"],
+  ["2028-03-02","08:30","Unemployment Claims","Medium"],["2028-03-03","08:30","NFP","High"],
+  ["2028-03-08","08:30","CPI","High"],["2028-03-09","08:30","PPI","High"],
+  ["2028-03-09","08:30","Unemployment Claims","Medium"],["2028-03-15","14:00","FOMC","High"],
+  ["2028-03-16","08:30","Unemployment Claims","Medium"],["2028-03-23","08:30","Unemployment Claims","Medium"],
+  ["2028-03-30","08:30","Unemployment Claims","Medium"],
+  // 2028 Q2
+  ["2028-04-05","08:30","NFP","High"],["2028-04-04","08:30","Unemployment Claims","Medium"],
+  ["2028-04-10","08:30","CPI","High"],["2028-04-11","08:30","PPI","High"],
+  ["2028-04-11","08:30","Unemployment Claims","Medium"],["2028-04-18","08:30","Unemployment Claims","Medium"],
+  ["2028-04-25","08:30","Unemployment Claims","Medium"],["2028-04-26","14:00","FOMC","High"],
+  ["2028-05-02","08:30","Unemployment Claims","Medium"],["2028-05-03","08:30","NFP","High"],
+  ["2028-05-08","08:30","CPI","High"],["2028-05-09","08:30","PPI","High"],
+  ["2028-05-09","08:30","Unemployment Claims","Medium"],["2028-05-16","08:30","Unemployment Claims","Medium"],
+  ["2028-05-23","08:30","Unemployment Claims","Medium"],["2028-05-30","08:30","Unemployment Claims","Medium"],
 ];
 
 function detectNewsEvent(entryDatetime) {
@@ -454,6 +574,9 @@ export default function GCJournal() {
   const [analyticsMode, setAnalyticsMode] = useState("All");
   const [analyticsMonth, setAnalyticsMonth] = useState("All");
   const [checkedRules, setCheckedRules]   = useState({});
+  const [weeklyReviews, setWeeklyReviews] = useState(() => { try { return JSON.parse(localStorage.getItem("gc_weekly_reviews") || "[]"); } catch(e) { return []; } });
+  const [showWeeklyForm, setShowWeeklyForm] = useState(false);
+  const [weeklyForm, setWeeklyForm]       = useState({ week: "", whatWorked: "", whatDidnt: "", ruleBroke: "", improvement: "", mindset: "" });
   // ── AI Coach — Data Analysis ───────────────────────────────────────────
   const runDataAnalysis = useCallback(() => {
     if (trades.length < 5) { setCoachError("Log at least 5 trades before running analysis."); return; }
@@ -1079,6 +1202,36 @@ export default function GCJournal() {
     finally { setSyncing(false); }
   };
 
+  const saveWeeklyReview = () => {
+    if (!weeklyForm.week) { alert("Select the week first."); return; }
+    const updated = [{ ...weeklyForm, id: Date.now() }, ...weeklyReviews.filter(r => r.week !== weeklyForm.week)];
+    setWeeklyReviews(updated);
+    localStorage.setItem("gc_weekly_reviews", JSON.stringify(updated));
+    setShowWeeklyForm(false);
+    setWeeklyForm({ week: "", whatWorked: "", whatDidnt: "", ruleBroke: "", improvement: "", mindset: "" });
+  };
+
+  // Today's session P&L
+  const todayPnL = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return trades
+      .filter(t => t.entryDatetime?.slice(0, 10) === today)
+      .reduce((s, t) => s + (parseFloat(t.points) || 0) * 10, 0); // convert points → dollars (MGC)
+  }, [trades]);
+
+  // Drawdown from peak equity
+  const drawdown = useMemo(() => {
+    const sorted = [...trades].sort((a, b) => a.entryDatetime < b.entryDatetime ? -1 : 1);
+    let cum = 0, peak = 0, maxDD = 0, curDD = 0;
+    sorted.forEach(t => {
+      cum  += (parseFloat(t.points) || 0) * 10;
+      peak  = Math.max(peak, cum);
+      curDD = peak - cum;
+      maxDD = Math.max(maxDD, curDD);
+    });
+    return { current: curDD, max: maxDD, peak };
+  }, [trades]);
+
   const exportCSV = () => {
     const headers = Object.keys(defaultForm()).filter(k => k !== "screenshots");
     const rows = trades.map(t => headers.map(h => JSON.stringify(t[h] ?? "")).join(","));
@@ -1490,9 +1643,9 @@ export default function GCJournal() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {["journal","log","analytics","rules","calc","coach","payouts","tax","expenses"].map(v => (
+          {["journal","log","analytics","rules","calc","coach","payouts","tax","expenses","review"].map(v => (
             <button key={v} onClick={() => { setView(v); localStorage.setItem("gc_last_view", v); }} style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${view === v ? "#f5c842" : "#2a2f3a"}`, background: view === v ? "rgba(245,200,66,0.1)" : "transparent", color: view === v ? "#f5c842" : "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: 2, textTransform: "uppercase", fontFamily: "inherit" }}>
-              {v === "calc" ? "Position" : v === "coach" ? "AI Coach" : v}
+              {v === "calc" ? "Position" : v === "coach" ? "AI Coach" : v === "review" ? "Weekly" : v}
             </button>
           ))}
           <button onClick={exportCSV} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #2a2f3a", background: "transparent", color: "#8b949e", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>CSV ↓</button>
@@ -1517,6 +1670,11 @@ export default function GCJournal() {
           </span>
           <span style={{ fontSize: 11, color: "#6b7280" }}>Best win streak: <span style={{ color: "#00e5a0" }}>{streaks.maxWin}W</span></span>
           <span style={{ fontSize: 11, color: "#6b7280" }}>Worst loss streak: <span style={{ color: "#ff4d6d" }}>{streaks.maxLoss}L</span></span>
+          {/* Today's session P&L */}
+          <span style={{ fontSize: 9, color: "#6b7280", letterSpacing: 3 }}>TODAY</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: todayPnL > 0 ? "#00e5a0" : todayPnL < 0 ? "#ff4d6d" : "#4b5563" }}>
+            {todayPnL >= 0 ? "+" : ""}${todayPnL.toFixed(2)}
+          </span>
           {streaks.curLoss >= 2 && (
             <span style={{ fontSize: 10, fontWeight: 700, color: "#ff4d6d", background: "rgba(255,77,109,0.1)", padding: "2px 10px", borderRadius: 20, border: "1px solid #ff4d6d44" }}>
               {streaks.curLoss >= 3 ? "⚠ STOP WEEK — 3 consecutive losses reached" : "⚠ Warning: 2 losses — 1 more = stop for the week"}
@@ -2099,6 +2257,8 @@ export default function GCJournal() {
                 ["W / L", `${stats.wins} / ${stats.losses}`, "#e6edf3"],
                 ["Win Streak", `${streaks.curWin}W cur / ${streaks.maxWin}W best`, "#00e5a0"],
                 ["Loss Streak", `${streaks.curLoss}L cur / ${streaks.maxLoss}L worst`, streaks.curLoss >= 3 ? "#ff4d6d" : "#e6edf3"],
+                ["Current DD", drawdown.current > 0 ? `-$${drawdown.current.toFixed(0)}` : "$0", drawdown.current > 1500 ? "#ff4d6d" : drawdown.current > 500 ? "#f5c842" : "#00e5a0"],
+                ["Max Drawdown", `-$${drawdown.max.toFixed(0)}`, drawdown.max > 2000 ? "#ff4d6d" : "#e6edf3"],
                 ...(stats.avgMAE ? [["Avg MAE", `${stats.avgMAE} pts`, "#a78bfa"]] : []),
               ].map(([label, val, color]) => (
                 <div key={label} style={{ background: "#0d1117", border: label === "Overall Gain" ? `1px solid ${parseFloat(stats.gainPct) >= 0 ? "#00e5a044" : "#ff4d6d44"}` : "1px solid #1f2937", borderRadius: 12, padding: "16px 18px" }}>
@@ -2157,6 +2317,37 @@ export default function GCJournal() {
               <div style={{ fontSize: 10, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 4, fontWeight: 700 }}>Equity Curve — Cumulative Points</div>
               <div style={{ fontSize: 10, color: "#4b5563", marginBottom: 10 }}>Dots: green=win red=loss</div>
               <EquityCurve data={stats.equity} />
+            </div>
+
+            {/* Drawdown Tracker */}
+            <div style={{ background: "#0d1117", border: `1px solid ${drawdown.current > 1500 ? "#ff4d6d44" : "#1f2937"}`, borderRadius: 12, padding: 20, marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 14, fontWeight: 700 }}>Drawdown Tracker</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px,1fr))", gap: 12, marginBottom: 16 }}>
+                {[
+                  ["Current DD", `$${drawdown.current.toFixed(0)}`, drawdown.current > 1500 ? "#ff4d6d" : drawdown.current > 500 ? "#f5c842" : "#00e5a0"],
+                  ["Max Drawdown", `$${drawdown.max.toFixed(0)}`, drawdown.max > 2000 ? "#ff4d6d" : "#e6edf3"],
+                  ["Peak Profit", `$${drawdown.peak.toFixed(0)}`, "#00e5a0"],
+                  ["TSX Limit (50k)", "$2,500", "#6b7280"],
+                ].map(([label, val, color]) => (
+                  <div key={label} style={{ background: "#070b12", borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 9, color: "#6b7280", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+              {/* DD progress bar toward TSX limit */}
+              <div style={{ marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 10, color: "#6b7280" }}>Drawdown used vs $2,500 TopstepX trailing limit</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: drawdown.current / 2500 > 0.7 ? "#ff4d6d" : "#f5c842" }}>
+                  {((drawdown.current / 2500) * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div style={{ height: 10, background: "#1f2937", borderRadius: 5, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.min((drawdown.current / 2500) * 100, 100)}%`, background: drawdown.current / 2500 > 0.7 ? "#ff4d6d" : drawdown.current / 2500 > 0.4 ? "#f5c842" : "#00e5a0", borderRadius: 5, transition: "width 0.5s ease" }} />
+              </div>
+              <div style={{ fontSize: 10, color: "#4b5563", marginTop: 8 }}>
+                ${(2500 - drawdown.current).toFixed(0)} remaining before trailing drawdown breach
+              </div>
             </div>
 
             {/* Charts grid */}
@@ -2940,6 +3131,81 @@ export default function GCJournal() {
           </div>
         );
       })()}
+
+      {/* ═══ WEEKLY REVIEW ═══ */}
+      {!loading && view === "review" && (
+        <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase" }}>Weekly Review</div>
+              <div style={{ fontSize: 11, color: "#4b5563", marginTop: 3 }}>Complete every Sunday. Builds the habit that separates improving traders from stagnant ones.</div>
+            </div>
+            <button onClick={() => setShowWeeklyForm(f => !f)} style={{ padding: "9px 20px", borderRadius: 9, border: `1px solid ${showWeeklyForm ? "#2a2f3a" : "#f5c842"}`, background: showWeeklyForm ? "transparent" : "rgba(245,200,66,0.1)", color: showWeeklyForm ? "#6b7280" : "#f5c842", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: 2 }}>
+              {showWeeklyForm ? "Cancel" : "+ New Review"}
+            </button>
+          </div>
+
+          {/* Review form */}
+          {showWeeklyForm && (
+            <div style={{ background: "#0d1117", border: "1px solid #f5c84233", borderRadius: 14, padding: 24, marginBottom: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                <div>
+                  <label style={lbl}>Week of (Monday date)</label>
+                  <input type="date" value={weeklyForm.week} onChange={e => setWeeklyForm(f => ({...f, week: e.target.value}))} style={{ width: "100%", background: "#070b12", border: "1px solid #2a2f3a", borderRadius: 8, padding: "8px 12px", color: "#e6edf3", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" }} />
+                </div>
+              </div>
+              {[
+                ["What worked well this week?", "whatWorked", "Setups, execution, discipline..."],
+                ["What didn't work?", "whatDidnt", "Mistakes, hesitation, overtrading..."],
+                ["One rule I broke (if any)", "ruleBroke", "Be honest — this is your private journal"],
+                ["One specific thing to improve next week", "improvement", "Concrete and actionable, not vague"],
+                ["Mindset & emotional state this week", "mindset", "How did you feel during trades?"],
+              ].map(([label, key, placeholder]) => (
+                <div key={key} style={{ marginBottom: 12 }}>
+                  <label style={lbl}>{label}</label>
+                  <textarea value={weeklyForm[key]} onChange={e => setWeeklyForm(f => ({...f, [key]: e.target.value}))} rows={2} placeholder={placeholder}
+                    style={{ width: "100%", background: "#070b12", border: "1px solid #2a2f3a", borderRadius: 8, padding: "8px 12px", color: "#e6edf3", fontSize: 12, boxSizing: "border-box", fontFamily: "inherit", resize: "vertical", lineHeight: 1.6 }} />
+                </div>
+              ))}
+              <button onClick={saveWeeklyReview} style={{ padding: "11px 28px", background: "linear-gradient(135deg,#f5c842,#ff9a3c)", borderRadius: 10, border: "none", color: "#070b12", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit", letterSpacing: 2 }}>
+                Save Review
+              </button>
+            </div>
+          )}
+
+          {/* Review list */}
+          {weeklyReviews.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 60, color: "#4b5563", fontSize: 12 }}>
+              No reviews yet. Complete your first Sunday review to start building your trading journal history.
+            </div>
+          ) : (
+            weeklyReviews.sort((a,b) => b.week > a.week ? 1 : -1).map(r => (
+              <div key={r.id} style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 12, padding: 20, marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842" }}>
+                    Week of {new Date(r.week + "T12:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                  </div>
+                  <button onClick={() => { setWeeklyReviews(prev => { const u = prev.filter(x => x.id !== r.id); localStorage.setItem("gc_weekly_reviews", JSON.stringify(u)); return u; }); }} style={{ fontSize: 10, color: "#ff4d6d", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Remove</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                  {[
+                    ["What worked", r.whatWorked, "#00e5a0"],
+                    ["What didn't work", r.whatDidnt, "#ff4d6d"],
+                    ["Rule broke", r.ruleBroke, "#f5c842"],
+                    ["Improve next week", r.improvement, "#3b82f6"],
+                    ["Mindset", r.mindset, "#a78bfa"],
+                  ].filter(([,v]) => v).map(([label, val, color]) => (
+                    <div key={label}>
+                      <div style={{ fontSize: 9, color, letterSpacing: 2, textTransform: "uppercase", marginBottom: 4, fontWeight: 700 }}>{label}</div>
+                      <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6 }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       <div style={{ textAlign: "center", padding: "20px", color: "#1f2937", fontSize: 9, letterSpacing: 3, marginTop: 16 }}>
         GC FUTURES JOURNAL · CLOUD SYNCED VIA SUPABASE · {trades.length} TRADES
