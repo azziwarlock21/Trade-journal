@@ -768,12 +768,12 @@ export default function GCJournal() {
       } catch(e) { /* use defaults */ }
 
       // Step 2: Try Supabase — if it has newer data, use that instead
-      try {
+ /*     try {
         const res = await fetch(
           `${SUPABASE_URL}/rest/v1/sync_log?id=in.(gc_payouts,gc_expenses)&select=id,last_sync`,
           { headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` } }
         );
-        if (res.ok) {
+  */      if (res.ok) {
           const rows = await res.json();
           const pr = rows.find(r => r.id === "gc_payouts");
           const er = rows.find(r => r.id === "gc_expenses");
