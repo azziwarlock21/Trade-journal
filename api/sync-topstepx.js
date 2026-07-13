@@ -49,6 +49,7 @@ async function tsxGetAccountId(token) {
     body: JSON.stringify({ onlyActiveAccounts: true }),
   });
   const data = await res.json();
+  console.log(JSON.stringify(data.accounts, null, 2));
   if (!data.success || !data.accounts?.length) throw new Error(`No accounts: ${JSON.stringify(data)}`);
   console.log("Accounts:", data.accounts.map(a => `${a.id}:${a.name}`).join(", "));
   if (TSX_ACCOUNT_ID) {
