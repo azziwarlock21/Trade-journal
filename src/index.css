@@ -53,7 +53,90 @@
 body {
   margin: 0;
 }
+<div className="trading-calendar">
 
+  <div className="calendar-header">
+    <button
+      onClick={() =>
+        setCalendarDate(
+          new Date(
+            calendarDate.getFullYear(),
+            calendarDate.getMonth() - 1,
+            1
+          )
+        )
+      }
+    >
+      ←
+    </button>
+
+    <h3>
+      {calendarDate.toLocaleString("default", {
+        month: "long",
+        year: "numeric",
+      })}
+    </h3>
+
+    <button
+      onClick={() =>
+        setCalendarDate(
+          new Date(
+            calendarDate.getFullYear(),
+            calendarDate.getMonth() + 1,
+            1
+          )
+        )
+      }
+    >
+      →
+    </button>
+  </div>
+
+
+  <div className="calendar-grid">
+    {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(day => (
+      <div className="calendar-label" key={day}>
+        {day}
+      </div>
+    ))}
+
+
+    {calendarDays.map((item, index) => (
+      <div
+        key={index}
+        className={`calendar-cell ${
+          item?.pnl > 0
+            ? "profit-day"
+            : item?.pnl < 0
+            ? "loss-day"
+            : ""
+        }`}
+        onClick={() => item && setSelectedDay(item)}
+      >
+
+        {item && (
+          <>
+            <strong>{item.day}</strong>
+
+            {item.pnl !== undefined && (
+              <span>
+                ${item.pnl.toFixed(2)}
+              </span>
+            )}
+
+            {item.trades && (
+              <small>
+                {item.trades} trades
+              </small>
+            )}
+          </>
+        )}
+
+      </div>
+    ))}
+  </div>
+
+</div>
 #root {
   width: 1126px;
   max-width: 100%;
