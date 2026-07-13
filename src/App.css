@@ -7,7 +7,45 @@
   border: 2px solid transparent;
   transition: border-color 0.3s;
   margin-bottom: 24px;
+.trading-calendar {
+  margin-top: 25px;
+}
 
+.calendar-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.calendar-grid {
+  display:grid;
+  grid-template-columns:repeat(7,1fr);
+  gap:8px;
+  margin-top:15px;
+}
+
+.calendar-label {
+  text-align:center;
+  font-weight:bold;
+}
+
+.calendar-cell {
+  min-height:90px;
+  padding:8px;
+  border-radius:10px;
+  background:#1e1e1e;
+  cursor:pointer;
+  display:flex;
+  flex-direction:column;
+}
+
+.profit-day {
+  border:1px solid #22c55e;
+}
+
+.loss-day {
+  border:1px solid #ef4444;
+}
   &:hover {
     border-color: var(--accent-border);
   }
