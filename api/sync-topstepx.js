@@ -9,7 +9,7 @@ const SUPABASE_URL   = process.env.SUPABASE_URL;
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_KEY;
 const TSX_USERNAME   = process.env.TOPSTEPX_USERNAME;
 const TSX_API_KEY    = process.env.TOPSTEPX_API_KEY;
-const TSX_ACCOUNT_ID = process.env.TOPSTEPX_ACCOUNT_ID;
+//const TSX_ACCOUNT_ID = process.env.TOPSTEPX_ACCOUNT_ID;
 const CRON_SECRET    = process.env.CRON_SECRET || "";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
@@ -51,10 +51,10 @@ async function tsxGetAccountId(token) {
   const data = await res.json();
   if (!data.success || !data.accounts?.length) throw new Error(`No accounts: ${JSON.stringify(data)}`);
   console.log("Accounts:", data.accounts.map(a => `${a.id}:${a.name}`).join(", "));
-  if (TSX_ACCOUNT_ID) {
-    const m = data.accounts.find(a => String(a.id) === String(TSX_ACCOUNT_ID));
-    if (m) return m.id;
-  }
+  //if (TSX_ACCOUNT_ID) {
+    //const m = data.accounts.find(a => String(a.id) === String(TSX_ACCOUNT_ID));
+    //if (m) return m.id;
+  //}
   return data.accounts[0].id;
 }
 
