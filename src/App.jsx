@@ -536,8 +536,6 @@ function EquityCurve({ data }) {
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 export default function GCJournal() {
-  const [calendarDate, setCalendarDate] = useState(new Date());
-const [selectedDay, setSelectedDay] = useState(null);
   const [trades, setTrades]               = useState([]);
   const [loading, setLoading]             = useState(true);
   const [syncing, setSyncing]             = useState(false);
@@ -669,33 +667,6 @@ const [selectedDay, setSelectedDay] = useState(null);
     setCoachAnalysis(JSON.stringify(findings));
     setCoachLoading(false);
   }, [trades]);
-  
-  const calendarDays = useMemo(() => {
-  const year = calendarDate.getFullYear();
-  const month = calendarDate.getMonth();
-
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  const days = [];
-
-  for (let i = 0; i < firstDay; i++) {
-    days.push(null);
-  }
-
-  for (let i = 1; i <= daysInMonth; i++) {
-    const date =
-      `${year}-${String(month + 1).padStart(2, "0")}-${String(i).padStart(2, "0")}`;
-
-    days.push({
-      day: i,
-      date,
-      ...dailyPnL[date],
-    });
-  }
-
-  return days;
-}, [calendarDate, dailyPnL]);
 
   // ── AI Coach — Per-Trade Review ────────────────────────────────────────
   const runTradeReview = useCallback(async (trade) => {
@@ -1336,110 +1307,6 @@ const [selectedDay, setSelectedDay] = useState(null);
   }, [trades]);
 
   // ── Analytics ──────────────────────────────────────────────────────────
-  <div className="trading-calendar">
-
-  <div className="calendar-header">
-    <button
-      onClick={() =>
-        setCalendarDate(
-          new Date(
-            calendarDate.getFullYear(),
-            calendarDate.getMonth() - 1,
-            1
-          )
-        )
-      }
-    >
-      ←
-    </button>
-
-    <h3>
-      {calendarDate.toLocaleString("default", {
-        month: "long",
-        year: "numeric",
-      })}
-    </h3>
-
-    <button
-      onClick={() =>
-        setCalendarDate(
-          new Date(
-            calendarDate.getFullYear(),
-            calendarDate.getMonth() + 1,
-            1
-          )
-        )
-      }
-    >
-      →
-    </button>
-  </div>
-
-
-  <div className="calendar-grid">
-    {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(day => (
-      <div className="calendar-label" key={day}>
-        {day}
-      </div>
-    ))}
-
-
-    {calendarDays.map((item, index) => (
-      <div
-        key={index}
-        className={`calendar-cell ${
-          item?.pnl > 0
-            ? "profit-day"
-            : item?.pnl < 0
-            ? "loss-day"
-            : ""
-        }`}
-        onClick={() => item && setSelectedDay(item)}
-      >
-
-        {item && (
-          <>
-            <strong>{item.day}</strong>
-
-            {item.pnl !== undefined && (
-              <span>
-                ${item.pnl.toFixed(2)}
-              </span>
-            )}
-
-            {item.trades && (
-              <small>
-                {item.trades} trades
-              </small>
-            )}
-          </>
-        )}
-
-      </div>
-    ))}
-  </div>
-
-</div>
-  const dailyPnL = useMemo(() => {
-  const days = {};
-
-  trades.forEach((trade) => {
-    const date = new Date(trade.date).toISOString().split("T")[0];
-
-    if (!days[date]) {
-      days[date] = {
-        pnl: 0,
-        trades: 0,
-      };
-    }
-
-    days[date].pnl += Number(trade.pnl || 0);
-    days[date].trades += 1;
-  });
-
-  return days;
-}, [trades]);
-  
   const analyticsTrades = useMemo(() => {
     let src = trades;
     if (analyticsMode !== "All") src = src.filter(t => (t.tradeMode || "Backtest") === analyticsMode);
