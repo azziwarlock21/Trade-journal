@@ -73,7 +73,7 @@ export default async function handler(req, res) {
           contract: f.contractId,
         })),
     });
-  } catch(e) {
+  } catch (e) {
     return res.status(500).json({ error: e.message });
   }
 }
