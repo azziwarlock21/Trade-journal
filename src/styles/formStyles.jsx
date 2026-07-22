@@ -19,12 +19,8 @@ export const labelStyle = {
   textTransform: "uppercase", letterSpacing: 2, marginBottom: 4,
 };
 
-export const autoBadgeStyle = {
-  fontSize: 9,
-  marginLeft: 6,
-  background: "rgba(0,229,160,0.12)",
-  padding: "1px 6px",
-  borderRadius: 4,
-  color: "#00e5a0",
-  fontWeight: 700,
-};
+export const AutoBadge = () => (
+  <span style={{ fontSize: 9, marginLeft: 6, background: "rgba(0,229,160,0.12)", padding: "1px 6px", borderRadius: 4, color: "#00e5a0", fontWeight: 700 }}>
+    AUTO
+  </span>
+);
