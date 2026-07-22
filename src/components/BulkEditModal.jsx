@@ -2,7 +2,7 @@ import {
   CANDLE_PATTERNS, NEWS_EVENTS, SESSIONS,
   TRADE_TYPES, GRADES, HTF_BIASES, MARKET_STRUCTURES, TRADE_MODES,
 } from "../utils/constants.js";
-import { labelStyle as lbl, inputStyle as inp } from "../styles/formStyles.js";
+import { labelStyle as lbl, inputStyle as inp } from "../styles/formStyles.jsx";
 
 // ─── BulkEditModal ────────────────────────────────────────────────────────
 // Inline panel (not a true overlay modal) for applying shared field values
