@@ -1,4 +1,4 @@
-import { labelStyle as lbl } from "../styles/formStyles.js";
+import { labelStyle as lbl } from "../styles/formStyles.jsx";
 
 // ─── WeeklyReview ─────────────────────────────────────────────────────────
 // Sunday review tab: 5 structured reflection questions, saved per-week and
