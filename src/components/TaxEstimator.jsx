@@ -1,6 +1,6 @@
 import { calcExpenseTotal } from "../utils/finance.js";
 import { estimateTax } from "../utils/finance.js";
-import { labelStyle as lbl } from "../styles/formStyles.js";
+import { labelStyle as lbl } from "../styles/formStyles.jsx";
 
 const cinp = { width: "100%", background: "#0d1117", border: "1px solid #2a2f3a", borderRadius: 8, padding: "8px 12px", color: "#e6edf3", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };
 
