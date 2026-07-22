@@ -8,7 +8,7 @@ import {
   calcPointsFromOutcome, calcConfluence,
   gradeColor, outcomeColor, modeColor, confluenceColor,
 } from "../utils/helpers.js";
-import { inputStyle as inp, autoInputStyle as autoInp, labelStyle as lbl, AutoBadge } from "../styles/formStyles.js";
+import { inputStyle as inp, autoInputStyle as autoInp, labelStyle as lbl } from "../styles/formStyles.js";
 
 // ─── TradeForm ────────────────────────────────────────────────────────────
 // Journal tab: single-trade entry form + multi-position batch entry mode.
@@ -148,11 +148,19 @@ export default function TradeForm({
 
           <div>
             <label style={{ ...lbl, color: "#f5c842" }}>
-              RRR <AutoBadge />
-              <span style={{ marginLeft: 6, fontSize: 9, color: "#f97316", fontWeight: 700 }} title="Confluence: RRR ≥ 2.0">◆</span>
-            </label>
-            <input readOnly value={form.rrr} placeholder="--" style={autoInp} />
-          </div>
+              RRR <span
+  style={{
+    fontSize: 9,
+    marginLeft: 6,
+    background: "rgba(0,229,160,0.12)",
+    padding: "1px 6px",
+    borderRadius: 4,
+    color: "#00e5a0",
+    fontWeight: 700,
+  }}
+>
+  AUTO
+</span>
 
           <div>
             <label style={lbl}>MAE Extreme Price</label>
