@@ -4,6 +4,7 @@ import { computeStats, computeStreaks, computeDrawdown } from "../utils/analytic
 import { gradeColor } from "../utils/helpers.js";
 import TradingCalendar from "./TradingCalendar.jsx";
 import EquityCurve from "./EquityCurve.jsx";
+import PerformanceDashboard from "./PerformanceDashboard.jsx";
 import BarRow from "./BarRow.jsx";
 import HeatmapCell from "./HeatmapCell.jsx";
 
@@ -115,6 +116,8 @@ export default function Analytics({
           </div>
 
           <DrawdownTracker drawdown={drawdown} />
+
+          <PerformanceDashboard trades={analyticsTrades} />
 
           <CategoryChartsGrid stats={stats} />
 
