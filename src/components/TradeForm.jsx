@@ -8,7 +8,7 @@ import {
   calcPointsFromOutcome, calcConfluence,
   gradeColor, outcomeColor, modeColor, confluenceColor,
 } from "../utils/helpers.js";
-import { inputStyle as inp, autoInputStyle as autoInp, labelStyle as lbl, AutoBadge } from "../styles/formStyles.js";
+import { inputStyle as inp, autoInputStyle as autoInp, labelStyle as lbl, AutoBadge } from "../styles/formStyles.jsx";
 
 // ─── TradeForm ────────────────────────────────────────────────────────────
 // Journal tab: single-trade entry form + multi-position batch entry mode.
