@@ -203,3 +203,118 @@ export function computeDayMap(trades) {
   });
   return dayMap;
 }
+
+// ─── Phase 2 additions ────────────────────────────────────────────────────
+
+/**
+ * Profit Factor = gross profit / gross loss. > 1 means profitable overall.
+ * A value of 2.0 means you make $2 for every $1 lost. Returns null if
+ * there are no losing trades (undefined/infinite ratio).
+ */
+export function computeProfitFactor(trades) {
+  const grossProfit = trades
+    .filter(t => parseFloat(t.points) > 0)
+    .reduce((s, t) => s + parseFloat(t.points) * 10, 0);
+  const grossLoss = Math.abs(
+    trades.filter(t => parseFloat(t.points) < 0).reduce((s, t) => s + parseFloat(t.points) * 10, 0)
+  );
+  if (grossLoss === 0) return grossProfit > 0 ? null : 0; // null = undefined (no losses yet)
+  return grossProfit / grossLoss;
+}
+
+/**
+ * Average winner / average loser in dollars, plus largest single win/loss.
+ * These are the numbers Tradervue/Edgewonk show on every dashboard.
+ */
+export function computeWinLossExtremes(trades) {
+  const wins = trades.filter(t => t.outcome === "Win").map(t => (parseFloat(t.points) || 0) * 10);
+  const losses = trades.filter(t => t.outcome === "Loss").map(t => (parseFloat(t.points) || 0) * 10);
+
+  const avgWinner = wins.length ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
+  const avgLoser = losses.length ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
+  const largestWin = wins.length ? Math.max(...wins) : 0;
+  const largestLoss = losses.length ? Math.min(...losses) : 0; // most negative
+
+  return { avgWinner, avgLoser, largestWin, largestLoss };
+}
+
+/**
+ * Rolling win rate over the trailing N trades, computed at every point in
+ * the trade sequence. Used for the Win Rate Trend chart — reveals whether
+ * the edge is improving, flat, or decaying over time (a single overall
+ * win rate number hides this).
+ */
+export function computeWinRateTrend(trades, windowSize = 20) {
+  const sorted = [...trades].sort((a, b) => (a.entryDatetime < b.entryDatetime ? -1 : 1));
+  const points = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const windowStart = Math.max(0, i - windowSize + 1);
+    const window = sorted.slice(windowStart, i + 1);
+    const wins = window.filter(t => t.outcome === "Win").length;
+    points.push({
+      index: i,
+      winRate: (wins / window.length) * 100,
+      date: sorted[i].entryDatetime,
+    });
+  }
+  return points;
+}
+
+/**
+ * Daily P&L series for the Daily P&L bar chart (distinct from the
+ * calendar — this is a scrollable/zoomable bar chart of every trading day
+ * in sequence, useful for spotting consistency over time).
+ */
+export function computeDailyPnLSeries(trades) {
+  const dayMap = computeDayMap(trades);
+  return Object.entries(dayMap)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, d]) => ({ date, pnl: d.pnl, trades: d.trades, wins: d.wins }));
+}
+
+/**
+ * Weekly P&L series — groups trades by ISO week (Monday start), matching
+ * the same week-boundary logic used by computeStreaks for the stop-week
+ * rule, so "this week" means the same thing everywhere in the app.
+ */
+export function computeWeeklyPnLSeries(trades) {
+  const getWeekKey = (dt) => {
+    const d = new Date(dt);
+    const day = d.getUTCDay() || 7;
+    const monday = new Date(d);
+    monday.setUTCDate(d.getUTCDate() - day + 1);
+    return monday.toISOString().slice(0, 10);
+  };
+
+  const byWeek = {};
+  trades.forEach(t => {
+    if (!t.entryDatetime) return;
+    const wk = getWeekKey(t.entryDatetime);
+    if (!byWeek[wk]) byWeek[wk] = { pnl: 0, trades: 0, wins: 0 };
+    byWeek[wk].pnl += (parseFloat(t.points) || 0) * 10;
+    byWeek[wk].trades += 1;
+    if (t.outcome === "Win") byWeek[wk].wins += 1;
+  });
+
+  return Object.entries(byWeek)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([weekStart, d]) => ({ weekStart, ...d }));
+}
+
+/**
+ * Best and worst single trading day by net P&L. Used in the Trading
+ * Calendar header and the Performance Dashboard summary cards.
+ */
+export function computeBestWorstDay(trades) {
+  const dayMap = computeDayMap(trades);
+  const entries = Object.entries(dayMap);
+  if (!entries.length) return { best: null, worst: null };
+
+  const best = entries.reduce((a, b) => (b[1].pnl > a[1].pnl ? b : a));
+  const worst = entries.reduce((a, b) => (b[1].pnl < a[1].pnl ? b : a));
+
+  return {
+    best: { date: best[0], ...best[1] },
+    worst: { date: worst[0], ...worst[1] },
+  };
+}
