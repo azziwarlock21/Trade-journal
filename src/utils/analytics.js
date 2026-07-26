@@ -100,8 +100,16 @@ export function computeStats(src) {
     return { pts: parseFloat(cum.toFixed(1)), outcome: t.outcome };
   });
 
-  // ── Gain % — fixed 1% risk system: +2% per win, -1% per loss ──────────────
-  const gainPct = (wins.length * 2 - losses.length * 1).toFixed(1);
+  // ── Gain % — Actual account growth ────────────────────────────────────────
+// Calculates ROI from realized P/L instead of assuming fixed win/loss %
+
+const STARTING_BALANCE = 50000; // TopstepX 50K account
+
+const totalPnL = src.reduce((sum, t) => {
+  return sum + ((parseFloat(t.points) || 0) * 10);
+}, 0);
+
+const gainPct = ((totalPnL / STARTING_BALANCE) * 100).toFixed(2);
 
   // ── Monthly breakdown ──────────────────────────────────────────────────────
   const byMonth = {};
@@ -134,9 +142,8 @@ export function computeStats(src) {
     else setupVsExec.other++;
   });
 
-  return {
-    wins: wins.length, losses: losses.length, winRate, avgRRR, avgPoints,
-    totalPoints, gainPct, expectancy, avgMAE,
+return {
+  wins: wins.length, losses: losses.length, winRate, avgRRR, avgPoints, totalPoints, totalPnL: totalPnL.toFixed(2), gainPct, expectancy, avgMAE,
     byGrade, byExecGrade, byCandle, bySession, byType, byHtf, byStructure,
     heatmap, equity, setupVsExec, monthlyData,
   };
