@@ -122,14 +122,22 @@ const gainPct = ((totalPnL / STARTING_BALANCE) * 100).toFixed(2);
     byMonth[mo].points += parseFloat(t.points) || 0;
   });
   const monthlyData = Object.entries(byMonth)
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([mo, d]) => ({
-      mo, ...d,
+  .sort((a, b) => b[0].localeCompare(a[0]))
+  .map(([mo, d]) => {
+    const monthlyPnL = d.points * 10; // Convert points to dollars
+    const monthlyGainPct = ((monthlyPnL / STARTING_BALANCE) * 100).toFixed(2);
+
+    return {
+      mo,
+      ...d,
       total: d.wins + d.losses,
-      wr: d.wins + d.losses ? ((d.wins / (d.wins + d.losses)) * 100).toFixed(0) : 0,
-      gainPct: (d.wins * 2 - d.losses * 1).toFixed(1),
+      wr: d.wins + d.losses
+        ? ((d.wins / (d.wins + d.losses)) * 100).toFixed(0)
+        : 0,
+      gainPct: monthlyGainPct,
       points: d.points.toFixed(1),
-    }));
+    };
+  });
 
   // ── Setup grade vs execution grade matrix ──────────────────────────────────
   const setupVsExec = { AA: 0, AB: 0, BA: 0, BB: 0, other: 0 };
