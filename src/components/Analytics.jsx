@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { GRADES, TRADE_MODES } from "../utils/constants.js";
-import { computeStats, computeStreaks, computeDrawdown } from "../utils/analytics.js";
+import { computeStats, computeStreaks, computeDrawdown, computeMonthlySummary } from "../utils/analytics.js";
 import { gradeColor } from "../utils/helpers.js";
 import TradingCalendar from "./TradingCalendar.jsx";
 import EquityCurve from "./EquityCurve.jsx";
