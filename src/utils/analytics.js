@@ -279,10 +279,23 @@ export function computeDrawdown(trades) {
  * Today's session P&L in dollars.
  */
 export function computeTodayPnL(trades) {
-  const today = new Date().toISOString().slice(0, 10);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  const parts = formatter.formatToParts(new Date());
+  const y = parts.find(p => p.type === "year").value;
+  const m = parts.find(p => p.type === "month").value;
+  const d = parts.find(p => p.type === "day").value;
+
+  const today = `${y}-${m}-${d}`;
+
   return trades
     .filter(t => t.entryDatetime?.slice(0, 10) === today)
-    .reduce((s, t) => s + (parseFloat(t.points) || 0) * 10, 0);
+    .reduce((sum, t) => sum + (parseFloat(t.points) || 0) * 10, 0);
 }
 
 /**
