@@ -639,24 +639,49 @@ const HOLD_TIME_BUCKETS = [
 
 export function computeByHoldTime(trades) {
   const result = {};
-  HOLD_TIME_BUCKETS.forEach(b => { result[b.label] = { total: 0, wins: 0 }; });
 
-  trades.forEach(t => {
-    if (!t.entryDatetime || !t.exitDatetime) return;
-    const entry = parseTradeDateTime(t.entryDatetime);
-    const exit = parseTradeDateTime(t.exitDatetime);
-    if (entry === null || exit === null) return;
-    const diffMs = exit - entry;
-    if (isNaN(diffMs) || diffMs <= 0) return;
-
-    const bucket = HOLD_TIME_BUCKETS.find(b => diffMs <= b.maxMs);
-    if (!bucket) return;
-    result[bucket.label].total++;
-    if (getTradeOutcome(t) === "Win") result[bucket.label].wins++;
+  // Initialize all buckets
+  HOLD_TIME_BUCKETS.forEach(bucket => {
+    result[bucket.label] = {
+      total: 0,
+      wins: 0,
+    };
   });
 
-  // Only return buckets that actually have trades, preserving bucket order
+  trades.forEach(trade => {
+    if (!trade.entryDatetime || !trade.exitDatetime) return;
+
+    const entry = parseTradeDateTime(trade.entryDatetime);
+    const exit = parseTradeDateTime(trade.exitDatetime);
+
+    if (entry === null || exit === null) return;
+
+    const diffMs = exit - entry;
+
+    // Ignore invalid or negative durations
+    if (!Number.isFinite(diffMs) || diffMs <= 0) return;
+
+    const bucket = HOLD_TIME_BUCKETS.find(
+      bucket => diffMs <= bucket.maxMs
+    );
+
+    if (!bucket) return;
+
+    result[bucket.label].total++;
+
+    if (getTradeOutcome(trade) === "Win") {
+      result[bucket.label].wins++;
+    }
+  });
+
+  // Remove empty buckets while preserving display order
   const filtered = {};
-  HOLD_TIME_BUCKETS.forEach(b => { if (result[b.label].total > 0) filtered[b.label] = result[b.label]; });
+
+  HOLD_TIME_BUCKETS.forEach(bucket => {
+    if (result[bucket.label].total > 0) {
+      filtered[bucket.label] = result[bucket.label];
+    }
+  });
+
   return filtered;
 }
