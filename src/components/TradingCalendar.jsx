@@ -35,7 +35,12 @@ export default function TradingCalendar({ trades, date, onDateChange, selectedDa
 
   const monthLabel = new Date(year, month, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(new Date());
   const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
 
   const monthDays = Object.entries(dayMap).filter(([d]) => d.startsWith(monthKey));
