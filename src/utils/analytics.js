@@ -496,34 +496,7 @@ export function computeWeeklyPnLSeries(trades) {
  * Best and worst single trading day by net P&L. Used in the Trading
  * Calendar header and the Performance Dashboard summary cards.
  */
-export function computeDayMap(trades) {
-  const logicalTrades = groupIntoLogicalTrades(trades);
 
-  const dayMap = {};
-
-  logicalTrades.forEach(t => {
-    if (!t.entryDatetime) return;
-
-    const date = t.entryDatetime.slice(0, 10);
-
-    if (!dayMap[date]) {
-      dayMap[date] = {
-        pnl: 0,
-        trades: 0,
-        wins: 0,
-      };
-    }
-
-    dayMap[date].pnl += (parseFloat(t.points) || 0) * 10;
-    dayMap[date].trades++;
-
-    if (getTradeOutcome(t) === "Win") {
-      dayMap[date].wins++;
-    }
-  });
-
-  return dayMap;
-}
 
 // ─── Phase 3 additions — Professional Statistics ──────────────────────────
 // Weekday, hour-of-day (standalone), long/short, news impact, MAE/MFE
