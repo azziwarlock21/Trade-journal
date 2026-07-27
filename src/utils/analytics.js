@@ -121,34 +121,6 @@ const totalPnL = src.reduce((sum, t) => {
 const gainPct = ((totalPnL / STARTING_BALANCE) * 100).toFixed(2);
 
   // ── Monthly breakdown ──────────────────────────────────────────────────────
-  export function computeMonthlySummary(trades) {
-  const months = {};
-
-  trades.forEach(t => {
-    if (!t.entryDatetime) return;
-
-    const key = t.entryDatetime.slice(0, 7);
-
-    if (!months[key]) {
-      months[key] = {
-        pnl: 0,
-        wins: 0,
-        losses: 0,
-        trades: 0,
-      };
-    }
-
-    const pnl = (parseFloat(t.points) || 0) * 10;
-
-    months[key].pnl += pnl;
-    months[key].trades++;
-
-    if (getTradeOutcome(t) === "Win") months[key].wins++;
-    else if (getTradeOutcome(t) === "Loss") months[key].losses++;
-  });
-
-  return months;
-}
   const byMonth = {};
   src.forEach(t => {
     const mo = t.entryDatetime?.slice(0, 7);
@@ -363,7 +335,7 @@ export function computeDayMap(trades) {
   });
   return dayMap;
 }
-
+  
 /**
  * TopstepX payout eligibility: at least MIN_QUALIFYING_DAYS separate
  * trading days each with net P&L >= MIN_DAILY_PROFIT. Uses the same
@@ -378,6 +350,34 @@ export function computeDayMap(trades) {
  */
 const MIN_DAILY_PROFIT = 150;
 const MIN_QUALIFYING_DAYS = 5;
+export function computeMonthlySummary(trades) {
+  const months = {};
+
+  trades.forEach(t => {
+    if (!t.entryDatetime) return;
+
+    const key = t.entryDatetime.slice(0, 7);
+
+    if (!months[key]) {
+      months[key] = {
+        pnl: 0,
+        wins: 0,
+        losses: 0,
+        trades: 0,
+      };
+    }
+
+    const pnl = (parseFloat(t.points) || 0) * 10;
+
+    months[key].pnl += pnl;
+    months[key].trades++;
+
+    if (getTradeOutcome(t) === "Win") months[key].wins++;
+    else if (getTradeOutcome(t) === "Loss") months[key].losses++;
+  });
+
+  return months;
+}
 
 export function computePayoutEligibility(trades, {
   minDailyProfit = MIN_DAILY_PROFIT,
