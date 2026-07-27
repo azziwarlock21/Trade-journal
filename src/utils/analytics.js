@@ -300,25 +300,20 @@ export function computeDrawdown(trades) {
  * Today's session P&L in dollars.
  */
 export function computeTodayPnL(trades) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+  const now = new Date();
+
+  // Convert current time to Eastern Time
+  const etToday = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  });
-
-  const parts = formatter.formatToParts(new Date());
-  const y = parts.find(p => p.type === "year").value;
-  const m = parts.find(p => p.type === "month").value;
-  const d = parts.find(p => p.type === "day").value;
-
-  const today = `${y}-${m}-${d}`;
+  }).format(now);
 
   return trades
-    .filter(t => t.entryDatetime?.slice(0, 10) === today)
+    .filter(t => t.entryDatetime?.slice(0, 10) === etToday)
     .reduce((sum, t) => sum + (parseFloat(t.points) || 0) * 10, 0);
 }
-
 /**
  * Builds the calendar day -> {pnl, trades, wins} map used by the
  * TradingCalendar component. Works across the full trade history.
