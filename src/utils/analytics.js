@@ -320,14 +320,35 @@ export function computeTodayPnL(trades) {
  */
 export function computeDayMap(trades) {
   const dayMap = {};
-  trades.forEach(t => {
-    if (!t.entryDatetime) return;
-    const d = t.entryDatetime.slice(0, 10);
-    if (!dayMap[d]) dayMap[d] = { pnl: 0, trades: 0, wins: 0 };
-    dayMap[d].pnl += (parseFloat(t.points) || 0) * 10;
-    dayMap[d].trades += 1;
-    if (getTradeOutcome(t) === "Win") dayMap[d].wins += 1;
+
+  trades.forEach(trade => {
+    if (!trade.entryDatetime) return;
+
+    const date = trade.entryDatetime.slice(0, 10);
+
+    if (!dayMap[date]) {
+      dayMap[date] = {
+        pnl: 0,
+        trades: 0,
+        wins: 0,
+      };
+    }
+
+    const points = Number(trade.points) || 0;
+
+    dayMap[date].pnl += points * 10;
+    dayMap[date].trades++;
+
+    if (getTradeOutcome(trade) === "Win") {
+      dayMap[date].wins++;
+    }
   });
+
+  // Remove floating point precision errors
+  Object.values(dayMap).forEach(day => {
+    day.pnl = Math.round(day.pnl * 100) / 100;
+  });
+
   return dayMap;
 }
   
@@ -374,27 +395,34 @@ export function computeMonthlySummary(trades) {
   return months;
 }
 
-export function computePayoutEligibility(trades, {
-  minDailyProfit = MIN_DAILY_PROFIT,
-  minQualifyingDays = MIN_QUALIFYING_DAYS,
-} = {}) {
+export function computePayoutEligibility(
+  trades,
+  {
+    minDailyProfit = MIN_DAILY_PROFIT,
+    minQualifyingDays = MIN_QUALIFYING_DAYS,
+  } = {}
+) {
   const dayMap = computeDayMap(trades);
 
   const qualifyingDays = Object.entries(dayMap)
-    .filter(([, d]) => d.pnl >= minDailyProfit)
-    .map(([date, d]) => ({ date, pnl: d.pnl, trades: d.trades }))
+    .filter(([, day]) => Number(day.pnl.toFixed(2)) >= minDailyProfit)
+    .map(([date, day]) => ({
+      date,
+      pnl: Number(day.pnl.toFixed(2)),
+      trades: day.trades,
+    }))
     .sort((a, b) => a.date.localeCompare(b.date));
-
-  const daysRemaining = Math.max(0, minQualifyingDays - qualifyingDays.length);
-  const eligible = qualifyingDays.length >= minQualifyingDays;
 
   return {
     qualifyingDays,
     qualifyingDayCount: qualifyingDays.length,
     minQualifyingDays,
     minDailyProfit,
-    daysRemaining,
-    eligible,
+    daysRemaining: Math.max(
+      0,
+      minQualifyingDays - qualifyingDays.length
+    ),
+    eligible: qualifyingDays.length >= minQualifyingDays,
   };
 }
 
