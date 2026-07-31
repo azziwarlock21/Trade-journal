@@ -52,6 +52,15 @@ export default function GCJournal() {
 
   // ── TopstepX sync ─────────────────────────────────────────────────────────
   const { syncStatus, setSyncStatus, syncRunning, triggerSync } = useTopstepXSync(trades.setTrades);
+  useEffect(() => {
+  triggerSync(false);
+
+  const interval = setInterval(() => {
+    triggerSync(false);
+  }, 300000); // 5 minutes
+
+  return () => clearInterval(interval);
+}, []);
 
   // ── Analytics tab local state (mode/month filters + calendar) ────────────
   const [analyticsMode, setAnalyticsMode] = useState("All");
