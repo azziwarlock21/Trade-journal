@@ -405,12 +405,15 @@ export function computePayoutEligibility(
   const dayMap = computeDayMap(trades);
 
   const qualifyingDays = Object.entries(dayMap)
-    .filter(([, day]) => Number(day.pnl.toFixed(2)) >= minDailyProfit)
-    .map(([date, day]) => ({
-      date,
-      pnl: Number(day.pnl.toFixed(2)),
-      trades: day.trades,
-    }))
+    .filter(([, d]) => {
+  const pnl = Math.round(d.pnl * 100) / 100;
+  return pnl >= minDailyProfit;
+})
+   .map(([date, d]) => ({
+  date,
+  pnl: Math.round(d.pnl * 100) / 100,
+  trades: d.trades,
+}))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return {
