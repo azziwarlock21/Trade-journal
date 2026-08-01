@@ -1,6 +1,10 @@
 import { useMemo } from "react";
 import {
-  computeProfitFactor, computeWinLossExtremes, computeWinRateTrend, computeWeeklyPnLSeries, computeDailyPnLSeries
+  computeProfitFactor,
+  computeWinLossExtremes,
+  computeWinRateTrend,
+  computeWeeklyPnLSeries,
+  computeDailyPnLSeries,
 } from "../utils/analytics.js";
 import BarChart from "./BarChart.jsx";
 import LineChart from "./LineChart.jsx";
