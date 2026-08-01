@@ -114,7 +114,9 @@ logicalTrades.length
   });
 
   // ── Equity curve (cumulative points over time) ────────────────────────────
-  const sorted = [...src].sort((a, b) => (a.entryDatetime < b.entryDatetime ? -1 : 1));
+  const sorted = [...logicalTrades].sort(
+ (a,b)=>a.entryDatetime<b.entryDatetime?-1:1
+);
   let cum = 0;
   const equity = sorted.map(t => {
     cum += parseFloat(t.points) || 0;
@@ -134,7 +136,7 @@ const gainPct = ((totalPnL / STARTING_BALANCE) * 100).toFixed(2);
 
   // ── Monthly breakdown ──────────────────────────────────────────────────────
   const byMonth = {};
-  src.forEach(t => {
+  logicalTrades.forEach(t => {
     const mo = t.entryDatetime?.slice(0, 7);
     if (!mo) return;
     if (!byMonth[mo]) byMonth[mo] = { wins: 0, losses: 0, points: 0 };
@@ -297,7 +299,9 @@ export function computeStreaks(trades) {
  * Computes drawdown from peak equity (in dollars, using points * $10 for MGC).
  */
 export function computeDrawdown(trades) {
-  const sorted = [...trades].sort((a, b) => (a.entryDatetime < b.entryDatetime ? -1 : 1));
+  const sorted = [...groupIntoLogicalTrades(trades)].sort(
+ (a,b)=>a.entryDatetime<b.entryDatetime?-1:1
+);
   let cum = 0, peak = 0, maxDD = 0, curDD = 0;
   sorted.forEach(t => {
     cum += (parseFloat(t.points) || 0) * 10;
@@ -333,7 +337,8 @@ export function computeTodayPnL(trades) {
 export function computeDayMap(trades) {
   const dayMap = {};
 
-  trades.forEach(trade => {
+  const logicalTrades = groupIntoLogicalTrades(trades);
+  logicalTrades.forEach(t=>{
     if (!trade.entryDatetime) return;
 
     const date = trade.entryDatetime.slice(0, 10);
@@ -449,11 +454,13 @@ export function computePayoutEligibility(
  * there are no losing trades (undefined/infinite ratio).
  */
 export function computeProfitFactor(trades) {
-  const grossProfit = trades
+  const logicalTrades = groupIntoLogicalTrades(trades);
+
+const grossProfit = logicalTrades
     .filter(t => parseFloat(t.points) > 0)
     .reduce((s, t) => s + parseFloat(t.points) * 10, 0);
   const grossLoss = Math.abs(
-    trades.filter(t => parseFloat(t.points) < 0).reduce((s, t) => s + parseFloat(t.points) * 10, 0)
+    logicaltrades.filter(t => parseFloat(t.points) < 0).reduce((s, t) => s + parseFloat(t.points) * 10, 0)
   );
   if (grossLoss === 0) return grossProfit > 0 ? null : 0; // null = undefined (no losses yet)
   return grossProfit / grossLoss;
@@ -464,8 +471,9 @@ export function computeProfitFactor(trades) {
  * These are the numbers Tradervue/Edgewonk show on every dashboard.
  */
 export function computeWinLossExtremes(trades) {
-  const wins = trades.filter(t => getTradeOutcome(t) === "Win").map(t => (parseFloat(t.points) || 0) * 10);
-  const losses = trades.filter(t => getTradeOutcome(t) === "Loss").map(t => (parseFloat(t.points) || 0) * 10);
+  const logicalTrades = groupIntoLogicalTrades(trades);
+  const wins = logicaltrades.filter(t => getTradeOutcome(t) === "Win").map(t => (parseFloat(t.points) || 0) * 10);
+  const losses = logicaltrades.filter(t => getTradeOutcome(t) === "Loss").map(t => (parseFloat(t.points) || 0) * 10);
 
   const avgWinner = wins.length ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
   const avgLoser = losses.length ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
@@ -516,7 +524,9 @@ export function computeDailyPnLSeries(trades) {
  */
 export function computeWeeklyPnLSeries(trades) {
   const byWeek = {};
-  trades.forEach(t => {
+  const logicalTrades = groupIntoLogicalTrades(trades);
+
+logicalTrades.forEach(...)
     if (!t.entryDatetime || !t.entryDatetime.includes("T")) return;
     const wk = getWeekStartKey(t.entryDatetime);
     if (!byWeek[wk]) byWeek[wk] = { pnl: 0, trades: 0, wins: 0 };
