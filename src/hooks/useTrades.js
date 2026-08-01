@@ -55,7 +55,11 @@ export function useTrades() {
   useEffect(() => {
     setLoading(true);
     dbFetchAll()
-      .then(rows => { setTrades(rows); setSyncError(""); })
+      .then(rows => {
+  console.log("Loaded from Supabase:", rows[0]);
+  setTrades(rows);
+  setSyncError("");
+})
       .catch(e => setSyncError("Could not connect to database: " + e.message))
       .finally(() => setLoading(false));
   }, []);
