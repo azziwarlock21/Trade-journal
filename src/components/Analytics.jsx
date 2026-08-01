@@ -118,7 +118,7 @@ export default function Analytics({
 
           <DrawdownTracker drawdown={drawdown} />
 
-          <PerformanceDashboard trades={analyticsTrades} />
+          <PerformanceDashboard completedTrades={analyticsTrades} />
 
           <ProfessionalStats trades={analyticsTrades} />
 
