@@ -411,18 +411,6 @@ export function computeDayMap(trades) {
   return dayMap;
 }
 
-export function computeDailyPnLSeries(trades) {
-  const dayMap = computeDayMap(trades);
-
-  return Object.entries(dayMap)
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, d]) => ({
-      date,
-      pnl: d.pnl,
-      trades: d.trades,
-      wins: d.wins,
-    }));
-}
   export function computeDailyPnLSeries(trades) {
   const days = {};
 
