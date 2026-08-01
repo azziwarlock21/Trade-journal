@@ -270,6 +270,42 @@ export function groupIntoLogicalTrades(trades) {
   }));
 }
 
+export function buildTradesFromFills(fills) {
+  const trades = [];
+  let current = null;
+
+  fills.forEach((fill) => {
+    if (!current) {
+      current = {
+        entryTime: fill.time,
+        symbol: fill.symbol,
+        side: fill.side,
+        qty: fill.qty,
+        pnl: 0,
+        fills: [fill],
+      };
+      return;
+    }
+
+    current.fills.push(fill);
+
+    // opposite side = trade completed
+    if (fill.side !== current.side) {
+      current.exitTime = fill.time;
+      current.pnl += Number(fill.pnl || 0);
+
+      trades.push({
+        ...current,
+        tradeNumber: trades.length + 1,
+      });
+
+      current = null;
+    }
+  });
+
+  return trades;
+}
+
 export function computeStreaks(trades) {
   // Streaks are counted per logical trade, not per fill/row — a scaled
   // position closed all at once is one win or one loss, not several.
