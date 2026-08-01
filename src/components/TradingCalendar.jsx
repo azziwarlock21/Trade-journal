@@ -22,7 +22,9 @@ import { computeDayMap, computeWeeklyPnLSeries } from "../utils/analytics.js";
 
 const WEEKDAY_COLS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
-export default function TradingCalendar({ trades, date, onDateChange, selectedDay, onDayClick }) {
+export default function TradingCalendar({ trades = [], date, onDateChange, selectedDay, onDayClick }) {
+  if (!date) return null;
+
   const { year, month } = date;
 
   const dayMap = useMemo(() => computeDayMap(trades), [trades]);
