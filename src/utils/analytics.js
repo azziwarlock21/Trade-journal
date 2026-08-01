@@ -374,6 +374,19 @@ export function computeDayMap(trades) {
 
   return dayMap;
 }
+
+export function computeDailyPnLSeries(trades) {
+  const dayMap = computeDayMap(trades);
+
+  return Object.entries(dayMap)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, d]) => ({
+      date,
+      pnl: d.pnl,
+      trades: d.trades,
+      wins: d.wins,
+    }));
+}
   
 /**
  * TopstepX payout eligibility: at least MIN_QUALIFYING_DAYS separate
@@ -543,11 +556,10 @@ export function computeWinRateTrend(trades, windowSize = 20) {
 export function computeWeeklyPnLSeries(trades) {
   const byWeek = {};
 
-  // Count logical trades instead of individual fills
   const logicalTrades = groupIntoLogicalTrades(trades);
 
   logicalTrades.forEach(t => {
-    if (!t.entryDatetime || !t.entryDatetime.includes("T")) return;
+    if (!t.entryDatetime) return;
 
     const wk = getWeekStartKey(t.entryDatetime);
 
@@ -560,10 +572,10 @@ export function computeWeeklyPnLSeries(trades) {
     }
 
     byWeek[wk].pnl += (parseFloat(t.points) || 0) * 10;
-    byWeek[wk].trades += 1;
+    byWeek[wk].trades++;
 
     if (t.outcome === "Win") {
-      byWeek[wk].wins += 1;
+      byWeek[wk].wins++;
     }
   });
 
