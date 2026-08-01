@@ -21,7 +21,7 @@ const TSX_TRAILING_LIMIT = 2500; // $2,500 trailing drawdown limit for 50k accou
 // derived state from the parent.
 
 export default function Analytics({
-  trades,
+  trades = [],
   analyticsMode, setAnalyticsMode,
   analyticsMonth, setAnalyticsMonth,
   calendarDate, setCalendarDate,
