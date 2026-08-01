@@ -524,16 +524,28 @@ export function computeDailyPnLSeries(trades) {
  */
 export function computeWeeklyPnLSeries(trades) {
   const byWeek = {};
-  const logicalTrades = groupIntoLogicalTrades(trades);
+const logicalTrades = groupIntoLogicalTrades(trades);
 
-logicalTrades.forEach(...)
-    if (!t.entryDatetime || !t.entryDatetime.includes("T")) return;
-    const wk = getWeekStartKey(t.entryDatetime);
-    if (!byWeek[wk]) byWeek[wk] = { pnl: 0, trades: 0, wins: 0 };
-    byWeek[wk].pnl += (parseFloat(t.points) || 0) * 10;
-    byWeek[wk].trades += 1;
-    if (getTradeOutcome(t) === "Win") byWeek[wk].wins += 1;
-  });
+logicalTrades.forEach((t) => {
+  if (!t.entryDatetime || !t.entryDatetime.includes("T")) return;
+
+  const wk = getWeekStartKey(t.entryDatetime);
+
+  if (!byWeek[wk]) {
+    byWeek[wk] = {
+      pnl: 0,
+      trades: 0,
+      wins: 0,
+    };
+  }
+
+  byWeek[wk].pnl += (parseFloat(t.points) || 0) * 10;
+  byWeek[wk].trades += 1;
+
+  if (t.outcome === "Win") {
+    byWeek[wk].wins += 1;
+  }
+});
 
   return Object.entries(byWeek)
     .sort((a, b) => a[0].localeCompare(b[0]))
