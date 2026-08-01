@@ -387,7 +387,27 @@ export function computeDailyPnLSeries(trades) {
       wins: d.wins,
     }));
 }
-  
+  export function computeDailyPnLSeries(trades) {
+  const days = {};
+
+  trades.forEach((trade) => {
+    const date = trade.date?.slice(0, 10);
+    if (!date) return;
+
+    if (!days[date]) {
+      days[date] = 0;
+    }
+
+    days[date] += Number(trade.pnl || 0);
+  });
+
+  return Object.entries(days)
+    .sort(([a], [b]) => new Date(a) - new Date(b))
+    .map(([date, pnl]) => ({
+      date,
+      pnl,
+    }));
+}
 /**
  * TopstepX payout eligibility: at least MIN_QUALIFYING_DAYS separate
  * trading days each with net P&L >= MIN_DAILY_PROFIT. Uses the same
