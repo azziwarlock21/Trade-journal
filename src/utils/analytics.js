@@ -40,6 +40,7 @@ function getTradeOutcome(trade) {
 }
 
 export function computeStats(src) {
+  
   if (!src.length) return null;
 
   // Keep both datasets available.
@@ -299,19 +300,31 @@ export function computeStreaks(trades) {
  * Computes drawdown from peak equity (in dollars, using points * $10 for MGC).
  */
 export function computeDrawdown(trades) {
-  const sorted = [...groupIntoLogicalTrades(trades)].sort(
- (a,b)=>a.entryDatetime<b.entryDatetime?-1:1
-);
-  let cum = 0, peak = 0, maxDD = 0, curDD = 0;
+  const logicalTrades = groupIntoLogicalTrades(trades);
+
+  const sorted = [...logicalTrades].sort((a, b) =>
+    a.entryDatetime < b.entryDatetime ? -1 : 1
+  );
+
+  let cum = 0;
+  let peak = 0;
+  let maxDD = 0;
+  let curDD = 0;
+
   sorted.forEach(t => {
     cum += (parseFloat(t.points) || 0) * 10;
+
     peak = Math.max(peak, cum);
     curDD = peak - cum;
     maxDD = Math.max(maxDD, curDD);
   });
-  return { current: curDD, max: maxDD, peak };
-}
 
+  return {
+    current: curDD,
+    max: maxDD,
+    peak,
+  };
+}
 /**
  * Today's session P&L in dollars.
  */
@@ -335,35 +348,28 @@ export function computeTodayPnL(trades) {
  * TradingCalendar component. Works across the full trade history.
  */
 export function computeDayMap(trades) {
+  const logicalTrades = groupIntoLogicalTrades(trades);
   const dayMap = {};
 
-  const logicalTrades = groupIntoLogicalTrades(trades);
-  logicalTrades.forEach(t=>{
-    if (!trade.entryDatetime) return;
+  logicalTrades.forEach(t => {
+    if (!t.entryDatetime) return;
 
-    const date = trade.entryDatetime.slice(0, 10);
+    const day = t.entryDatetime.slice(0, 10);
 
-    if (!dayMap[date]) {
-      dayMap[date] = {
+    if (!dayMap[day]) {
+      dayMap[day] = {
         pnl: 0,
         trades: 0,
         wins: 0,
       };
     }
 
-    const points = Number(trade.points) || 0;
+    dayMap[day].pnl += (parseFloat(t.points) || 0) * 10;
+    dayMap[day].trades++;
 
-    dayMap[date].pnl += points * 10;
-    dayMap[date].trades++;
-
-    if (getTradeOutcome(trade) === "Win") {
-      dayMap[date].wins++;
+    if (t.outcome === "Win") {
+      dayMap[day].wins++;
     }
-  });
-
-  // Remove floating point precision errors
-  Object.values(dayMap).forEach(day => {
-    day.pnl = Math.round(day.pnl * 100) / 100;
   });
 
   return dayMap;
@@ -456,13 +462,20 @@ export function computePayoutEligibility(
 export function computeProfitFactor(trades) {
   const logicalTrades = groupIntoLogicalTrades(trades);
 
-const grossProfit = logicalTrades
-    .filter(t => parseFloat(t.points) > 0)
-    .reduce((s, t) => s + parseFloat(t.points) * 10, 0);
+  const grossProfit = logicalTrades
+    .filter(t => (parseFloat(t.points) || 0) > 0)
+    .reduce((sum, t) => sum + (parseFloat(t.points) || 0) * 10, 0);
+
   const grossLoss = Math.abs(
-    logicaltrades.filter(t => parseFloat(t.points) < 0).reduce((s, t) => s + parseFloat(t.points) * 10, 0)
+    logicalTrades
+      .filter(t => (parseFloat(t.points) || 0) < 0)
+      .reduce((sum, t) => sum + (parseFloat(t.points) || 0) * 10, 0)
   );
-  if (grossLoss === 0) return grossProfit > 0 ? null : 0; // null = undefined (no losses yet)
+
+  if (grossLoss === 0) {
+    return grossProfit > 0 ? null : 0;
+  }
+
   return grossProfit / grossLoss;
 }
 
@@ -472,15 +485,32 @@ const grossProfit = logicalTrades
  */
 export function computeWinLossExtremes(trades) {
   const logicalTrades = groupIntoLogicalTrades(trades);
-  const wins = logicaltrades.filter(t => getTradeOutcome(t) === "Win").map(t => (parseFloat(t.points) || 0) * 10);
-  const losses = logicaltrades.filter(t => getTradeOutcome(t) === "Loss").map(t => (parseFloat(t.points) || 0) * 10);
 
-  const avgWinner = wins.length ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
-  const avgLoser = losses.length ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
+  const wins = logicalTrades
+    .filter(t => t.outcome === "Win")
+    .map(t => (parseFloat(t.points) || 0) * 10);
+
+  const losses = logicalTrades
+    .filter(t => t.outcome === "Loss")
+    .map(t => (parseFloat(t.points) || 0) * 10);
+
+  const avgWinner = wins.length
+    ? wins.reduce((a, b) => a + b, 0) / wins.length
+    : 0;
+
+  const avgLoser = losses.length
+    ? losses.reduce((a, b) => a + b, 0) / losses.length
+    : 0;
+
   const largestWin = wins.length ? Math.max(...wins) : 0;
-  const largestLoss = losses.length ? Math.min(...losses) : 0; // most negative
+  const largestLoss = losses.length ? Math.min(...losses) : 0;
 
-  return { avgWinner, avgLoser, largestWin, largestLoss };
+  return {
+    avgWinner,
+    avgLoser,
+    largestWin,
+    largestLoss,
+  };
 }
 
 /**
@@ -524,28 +554,36 @@ export function computeDailyPnLSeries(trades) {
  */
 export function computeWeeklyPnLSeries(trades) {
   const byWeek = {};
-const logicalTrades = groupIntoLogicalTrades(trades);
+  const logicalTrades = groupIntoLogicalTrades(trades);
 
-logicalTrades.forEach((t) => {
-  if (!t.entryDatetime || !t.entryDatetime.includes("T")) return;
+  logicalTrades.forEach((t) => {
+    if (!t.entryDatetime || !t.entryDatetime.includes("T")) return;
 
-  const wk = getWeekStartKey(t.entryDatetime);
+    const wk = getWeekStartKey(t.entryDatetime);
 
-  if (!byWeek[wk]) {
-    byWeek[wk] = {
-      pnl: 0,
-      trades: 0,
-      wins: 0,
-    };
-  }
+    if (!byWeek[wk]) {
+      byWeek[wk] = {
+        pnl: 0,
+        trades: 0,
+        wins: 0,
+      };
+    }
 
-  byWeek[wk].pnl += (parseFloat(t.points) || 0) * 10;
-  byWeek[wk].trades += 1;
+    byWeek[wk].pnl += (parseFloat(t.points) || 0) * 10;
+    byWeek[wk].trades++;
 
-  if (t.outcome === "Win") {
-    byWeek[wk].wins += 1;
-  }
-});
+    if (t.outcome === "Win") {
+      byWeek[wk].wins++;
+    }
+  });
+
+  return Object.entries(byWeek)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([weekStart, d]) => ({
+      weekStart,
+      ...d,
+    }));
+}
 
   return Object.entries(byWeek)
     .sort((a, b) => a[0].localeCompare(b[0]))
