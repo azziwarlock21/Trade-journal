@@ -17,7 +17,8 @@ const fmtDollar = (n) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(0)}`;
 // chart. Renders below the existing KPI cards / equity curve / drawdown
 // tracker in the Analytics tab — additive, doesn't replace anything.
 
-export default function PerformanceDashboard({ trades }) {
+export default function PerformanceDashboard({ completedTrades }) {
+  const completedTrades = useMemo(() => buildTradesFromFills(trades), [trades]);
   const profitFactor = useMemo(() => computeProfitFactor(trades), [trades]);
   const extremes = useMemo(() => computeWinLossExtremes(trades), [trades]);
   const winRateTrend = useMemo(() => computeWinRateTrend(trades, 20), [trades]);
