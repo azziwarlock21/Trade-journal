@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import {
-  computeProfitFactor, computeWinLossExtremes, computeWinRateTrend,
-  computeDailyPnLSeries, computeWeeklyPnLSeries,
+  computeProfitFactor, computeWinLossExtremes, computeWinRateTrend, computeWeeklyPnLSeries,
 } from "../utils/analytics.js";
 import BarChart from "./BarChart.jsx";
 import LineChart from "./LineChart.jsx";
@@ -18,7 +17,7 @@ export default function PerformanceDashboard({ trades }) {
   const profitFactor = useMemo(() => computeProfitFactor(trades), [trades]);
   const extremes = useMemo(() => computeWinLossExtremes(trades), [trades]);
   const winRateTrend = useMemo(() => computeWinRateTrend(trades, 20), [trades]);
-  const dailyPnL = useMemo(() => computeDailyPnLSeries(trades), [trades]);
+  //const dailyPnL = useMemo(() => computeDailyPnLSeries(trades), [trades]);
   const weeklyPnL = useMemo(() => computeWeeklyPnLSeries(trades), [trades]);
 
   if (!trades.length) return null;
