@@ -42,16 +42,28 @@ function getTradeOutcome(trade) {
 export function computeStats(src) {
   if (!src.length) return null;
 
-  const wins = src.filter(t => getTradeOutcome(t) === "Win");
-  const losses = src.filter(t => getTradeOutcome(t) === "Loss");
-  const winRate = ((wins.length / src.length) * 100).toFixed(1);
+  // Keep both datasets available.
+  // fills = every TopstepX fill
+  // logicalTrades = one completed position regardless of fills
+  const fills = src;
+  const logicalTrades = groupIntoLogicalTrades(src);
+
+  const wins = logicalTrades.filter(t => t.outcome === "Win");
+  const losses = logicalTrades.filter(t => t.outcome === "Loss");
+
+const winRate = (
+  (wins.length / logicalTrades.length) * 100
+).toFixed(1);
 
   const avgRRR = wins.length
     ? (wins.reduce((a, t) => a + (parseFloat(t.rrr) || 0), 0) / wins.length).toFixed(2)
     : "0.00";
 
-  const winRate01 = wins.length / src.length;
-  const expectancy = ((winRate01 * 2) - ((1 - winRate01) * 1)).toFixed(2); // R per trade
+  const winRate01 = wins.length / logicalTrades.length;
+  const expectancy =
+logicalTrades.length
+  ? ((winRate01 * 2) - ((1 - winRate01) * 1)).toFixed(2)
+  : "0.00";
 
   const avgPoints = (src.reduce((a, t) => a + (parseFloat(t.points) || 0), 0) / src.length).toFixed(1);
   const totalPoints = src.reduce((a, t) => a + (parseFloat(t.points) || 0), 0).toFixed(1);
