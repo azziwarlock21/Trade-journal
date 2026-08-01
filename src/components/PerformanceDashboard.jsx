@@ -18,14 +18,13 @@ const fmtDollar = (n) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(0)}`;
 // tracker in the Analytics tab — additive, doesn't replace anything.
 
 export default function PerformanceDashboard({ completedTrades }) {
- // const completedTrades = useMemo(() => buildTradesFromFills(trades), [trades]);
-  const profitFactor = useMemo(() => computeProfitFactor(trades), [trades]);
-  const extremes = useMemo(() => computeWinLossExtremes(trades), [trades]);
-  const winRateTrend = useMemo(() => computeWinRateTrend(trades, 20), [trades]);
-  const dailyPnL = useMemo(() => computeDailyPnLSeries(trades), [trades]);
-  const weeklyPnL = useMemo(() => computeWeeklyPnLSeries(trades), [trades]);
+  const profitFactor = useMemo(() => computeProfitFactor(completedTrades), [completedTrades]);
+  const extremes = useMemo(() => computeWinLossExtremes(completedTrades), [completedTrades]);
+  const winRateTrend = useMemo(() => computeWinRateTrend(completedTrades, 20), [completedTrades]);
+  const dailyPnL = useMemo(() => computeDailyPnLSeries(completedTrades), [completedTrades]);
+  const weeklyPnL = useMemo(() => computeWeeklyPnLSeries(completedTrades), [completedTrades]);
 
-  if (!trades.length) return null;
+  if (!completedTrades.length) return null;
 
   const pfDisplay = profitFactor === null ? "∞" : profitFactor.toFixed(2);
   const pfColor = profitFactor === null || profitFactor >= 2 ? "#00e5a0" : profitFactor >= 1 ? "#f5c842" : "#ff4d6d";
