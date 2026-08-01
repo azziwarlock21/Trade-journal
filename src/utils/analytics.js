@@ -574,10 +574,6 @@ export function computeWeeklyPnLSeries(trades) {
       ...d,
     }));
 }
-  return Object.entries(byWeek)
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([weekStart, d]) => ({ weekStart, ...d }));
-}
 
 /**
  * Best and worst single trading day by net P&L. Used in the Trading
