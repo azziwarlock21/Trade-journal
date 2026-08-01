@@ -540,23 +540,13 @@ export function computeWinRateTrend(trades, windowSize = 20) {
  * calendar — this is a scrollable/zoomable bar chart of every trading day
  * in sequence, useful for spotting consistency over time).
  */
-export function computeDailyPnLSeries(trades) {
-  const dayMap = computeDayMap(trades);
-  return Object.entries(dayMap)
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, d]) => ({ date, pnl: d.pnl, trades: d.trades, wins: d.wins }));
-}
-
-/**
- * Weekly P&L series — groups trades by ISO week (Monday start), matching
- * the same week-boundary logic used by computeStreaks for the stop-week
- * rule, so "this week" means the same thing everywhere in the app.
- */
 export function computeWeeklyPnLSeries(trades) {
   const byWeek = {};
+
+  // Count logical trades instead of individual fills
   const logicalTrades = groupIntoLogicalTrades(trades);
 
-  logicalTrades.forEach((t) => {
+  logicalTrades.forEach(t => {
     if (!t.entryDatetime || !t.entryDatetime.includes("T")) return;
 
     const wk = getWeekStartKey(t.entryDatetime);
@@ -570,10 +560,10 @@ export function computeWeeklyPnLSeries(trades) {
     }
 
     byWeek[wk].pnl += (parseFloat(t.points) || 0) * 10;
-    byWeek[wk].trades++;
+    byWeek[wk].trades += 1;
 
     if (t.outcome === "Win") {
-      byWeek[wk].wins++;
+      byWeek[wk].wins += 1;
     }
   });
 
@@ -584,7 +574,6 @@ export function computeWeeklyPnLSeries(trades) {
       ...d,
     }));
 }
-
   return Object.entries(byWeek)
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([weekStart, d]) => ({ weekStart, ...d }));
