@@ -201,6 +201,7 @@ export default function GCJournal() {
           onEdit={handleEditTrade}
           onDelete={trades.deleteTrade}
           openLightbox={openLightbox}
+          onUpdateTrade={(updated) => trades.setTrades(ts => ts.map(x => x.id === updated.id ? updated : x))}
         />
       )}
 
