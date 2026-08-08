@@ -374,6 +374,20 @@ export function computeDayMap(trades) {
 
   return dayMap;
 }
+
+/**
+ * Daily P&L series for the PerformanceDashboard bar chart — same
+ * day -> {pnl, trades, wins} data as computeDayMap, just flattened into a
+ * sorted array (one entry per trading day, in sequence).
+ */
+export function computeDailyPnLSeries(trades) {
+  const dayMap = computeDayMap(trades);
+
+  return Object.entries(dayMap)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, d]) => ({ date, ...d }));
+}
+
   
 /**
  * TopstepX payout eligibility: at least MIN_QUALIFYING_DAYS separate
