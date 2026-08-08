@@ -5,6 +5,7 @@ import {
   gradeColor, outcomeColor, modeColor,
 } from "../utils/helpers.js";
 import BulkEditModal, { emptyBulkForm } from "./BulkEditModal.jsx";
+import GeneratedChart from "./GeneratedChart.jsx";
 
 // ─── TradeList ────────────────────────────────────────────────────────────
 // Log tab: filterable, searchable list of trades grouped by day. Supports
@@ -26,6 +27,7 @@ export default function TradeList({
   onBulkApply, syncing, syncError,
   onDeleteAll, onDuplicate, onEdit, onDelete,
   openLightbox,
+  onUpdateTrade,
 }) {
   const filteredTrades = useMemo(() => {
     return trades
@@ -162,6 +164,7 @@ export default function TradeList({
                       onEdit={() => onEdit(t)}
                       onDelete={() => onDelete(t.id)}
                       openLightbox={openLightbox}
+                      onUpdateTrade={onUpdateTrade}
                     />
                   ))}
                 </div>
@@ -176,7 +179,7 @@ export default function TradeList({
 
 // ─── TradeRow ─────────────────────────────────────────────────────────────
 // Single trade row: collapsed summary + expandable detail panel.
-function TradeRow({ t, isSelected, isExpanded, onToggleSelect, onExpand, onDuplicate, onEdit, onDelete, openLightbox }) {
+function TradeRow({ t, isSelected, isExpanded, onToggleSelect, onExpand, onDuplicate, onEdit, onDelete, openLightbox, onUpdateTrade }) {
   return (
     <div style={{ background: isSelected ? "rgba(245,200,66,0.03)" : "#0d1117", border: `1px solid ${isSelected ? "#f5c84233" : "#1f2937"}`, borderTop: "none", overflow: "hidden" }}>
       <div style={{ padding: "11px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -249,6 +252,12 @@ function TradeRow({ t, isSelected, isExpanded, onToggleSelect, onExpand, onDupli
                 ))}
               </div>
             </div>
+          )}
+
+          {/* Chart reconstruction is only offered for TopstepX-imported trades —
+              manually-entered trades have no contract_id / historical bars to fetch. */}
+          {t.tradeMode === "Live" && t.contractId !== undefined && (
+            <GeneratedChart trade={t} onUpdate={onUpdateTrade} openLightbox={openLightbox} />
           )}
         </div>
       )}
