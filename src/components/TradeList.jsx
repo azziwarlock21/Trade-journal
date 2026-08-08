@@ -6,6 +6,7 @@ import {
 } from "../utils/helpers.js";
 import BulkEditModal, { emptyBulkForm } from "./BulkEditModal.jsx";
 import GeneratedChart from "./GeneratedChart.jsx";
+import MaeMfeCalculator from "./MaeMfeCalculator.jsx";
 
 // ─── TradeList ────────────────────────────────────────────────────────────
 // Log tab: filterable, searchable list of trades grouped by day. Supports
@@ -234,6 +235,13 @@ function TradeRow({ t, isSelected, isExpanded, onToggleSelect, onExpand, onDupli
               <div style={{ fontSize: 12, color: "#e6edf3" }}>{v}</div>
             </div>
           ) : null)}
+
+          {/* Auto-computes MAE/MFE from actual 1-minute bars over the trade's
+              entry→exit window — only meaningful for TopstepX-imported trades
+              (needs contract_id + exact UTC fill times). */}
+          {t.tradeMode === "Live" && t.contractId !== undefined && (
+            <MaeMfeCalculator trade={t} onUpdate={onUpdateTrade} />
+          )}
 
           {t.notes && (
             <div style={{ gridColumn: "1/-1" }}>
