@@ -1,11 +1,16 @@
 // ─── chartBars.js ───────────────────────────────────────────────────────
-// Fetches the historical 1-minute bars needed to reconstruct a trade's
-// chart: ~30 minutes before entry through ~30 minutes after exit, using
-// the trade's exact fill timestamps (never estimated).
+// Fetches the historical bars needed to reconstruct a trade's chart at a
+// given timeframe, centered on the trade's exact fill timestamps (never
+// estimated). Bars are native to whatever timeframe is requested — the
+// gateway is asked for real 5m/15m/1H/4H/1D/1m bars directly (see
+// utils/timeframes.js), nothing is resampled from 1-minute data here.
 
-const PAD_MINUTES = 30;
+import { TIMEFRAMES, barPaddingMinutes } from "./timeframes.js";
 
-export async function fetchTradeBars(trade, { unitNumber = 1 } = {}) {
+export async function fetchTradeBars(trade, { timeframe = "1H" } = {}) {
+  const tf = TIMEFRAMES[timeframe];
+  if (!tf) throw new Error(`Unknown timeframe "${timeframe}"`);
+
   if (!trade.contractId) {
     throw new Error("This trade has no contract_id (synced before chart reconstruction was added — run a Full Resync from TopstepX to backfill it).");
   }
@@ -13,8 +18,9 @@ export async function fetchTradeBars(trade, { unitNumber = 1 } = {}) {
     throw new Error("This trade has no UTC fill timestamps (synced before chart reconstruction was added — run a Full Resync from TopstepX to backfill them).");
   }
 
-  const startTime = new Date(new Date(trade.entryDatetimeUtc).getTime() - PAD_MINUTES * 60000).toISOString();
-  const endTime = new Date(new Date(trade.exitDatetimeUtc).getTime() + PAD_MINUTES * 60000).toISOString();
+  const padMinutes = barPaddingMinutes(tf);
+  const startTime = new Date(new Date(trade.entryDatetimeUtc).getTime() - padMinutes * 60000).toISOString();
+  const endTime = new Date(new Date(trade.exitDatetimeUtc).getTime() + padMinutes * 60000).toISOString();
 
   const secret = import.meta.env.VITE_CRON_SECRET || "";
   const base = window.location.origin;
@@ -26,13 +32,14 @@ export async function fetchTradeBars(trade, { unitNumber = 1 } = {}) {
       contractId: trade.contractId,
       startTime,
       endTime,
-      unitNumber,
+      unit: tf.unit,
+      unitNumber: tf.unitNumber,
     }),
   });
 
   const data = await res.json();
-  if (!res.ok || !data.success) throw new Error(data.error || "Failed to fetch historical bars");
-  if (!data.bars?.length) throw new Error("TopstepX returned no bars for this window — check the contract_id and time range.");
+  if (!res.ok || !data.success) throw new Error(data.error || `Failed to fetch ${timeframe} historical bars`);
+  if (!data.bars?.length) throw new Error(`TopstepX returned no ${timeframe} bars for this window — check the contract_id and time range.`);
 
   return data.bars;
 }

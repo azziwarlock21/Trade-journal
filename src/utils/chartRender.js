@@ -6,6 +6,8 @@
 // nearest historical bar), never estimated or guessed from candle shape.
 // No AI involved — see project chart-reconstruction notes.
 
+import { TIMEFRAMES } from "./timeframes.js";
+
 const COLORS = {
   bg: "#0d1117",
   panel: "#0b0f14",
@@ -83,7 +85,7 @@ export function renderTradeChart({ bars, trade, timeframe = "1m", width = 1100, 
 
   const marginLeft = 20;
   const marginRight = 90;
-  const marginTop = 130; // room for HUD
+  const marginTop = 145; // room for HUD
   const marginBottom = 46;
   const chartW = width - marginLeft - marginRight;
   const chartH = height - marginTop - marginBottom;
@@ -147,12 +149,17 @@ export function renderTradeChart({ bars, trade, timeframe = "1m", width = 1100, 
   });
 
   // ── Time axis (a handful of labels) ──
+  // Higher timeframes show date-oriented labels (a "10:32" label is
+  // meaningless on a daily chart); intraday timeframes keep HH:MM ET.
+  const dateOnly = timeframe === "1D" || timeframe === "4H";
   ctx.fillStyle = COLORS.axisText;
   const labelCount = Math.min(8, n);
   for (let k = 0; k <= labelCount; k++) {
     const i = Math.round((k / labelCount) * (n - 1));
     const t = new Date(sorted[i].time);
-    const label = t.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" });
+    const label = dateOnly
+      ? t.toLocaleDateString("en-US", { month: "short", day: "2-digit", timeZone: "America/New_York" })
+      : t.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" });
     ctx.fillText(label, xAt(i) - 14, height - marginBottom + 18);
   }
 
@@ -219,7 +226,7 @@ export function renderTradeChart({ bars, trade, timeframe = "1m", width = 1100, 
     month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York",
   }) : "--";
 
-  const hudX = marginLeft, hudY = 14, hudW = 430, hudH = 100;
+  const hudX = marginLeft, hudY = 14, hudW = 430, hudH = 116;
   ctx.fillStyle = COLORS.hudBg;
   ctx.strokeStyle = COLORS.hudBorder;
   ctx.lineWidth = 1;
@@ -232,16 +239,23 @@ export function renderTradeChart({ bars, trade, timeframe = "1m", width = 1100, 
   ctx.fillStyle = isLong ? COLORS.candleUp : COLORS.candleDown;
   ctx.fillText(`${trade.direction || "--"} · ${timeframe}`, hudX + 14, hudY + 24);
 
+  const purpose = TIMEFRAMES[timeframe]?.purpose;
+  if (purpose) {
+    ctx.font = "10px -apple-system, Segoe UI, sans-serif";
+    ctx.fillStyle = COLORS.subtext;
+    ctx.fillText(purpose, hudX + 14, hudY + 38);
+  }
+
   ctx.font = "12px -apple-system, Segoe UI, sans-serif";
   ctx.fillStyle = COLORS.text;
   const pnlColor = pnl == null ? COLORS.subtext : pnl >= 0 ? COLORS.candleUp : COLORS.candleDown;
-  ctx.fillText(`P&L: `, hudX + 14, hudY + 44);
+  ctx.fillText(`P&L: `, hudX + 14, hudY + 58);
   ctx.fillStyle = pnlColor;
-  ctx.fillText(pnl == null ? "--" : `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${points >= 0 ? "+" : ""}${points}pts)`, hudX + 50, hudY + 44);
+  ctx.fillText(pnl == null ? "--" : `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${points >= 0 ? "+" : ""}${points}pts)`, hudX + 50, hudY + 58);
 
   ctx.fillStyle = COLORS.subtext;
-  ctx.fillText(`Contracts: ${trade.lotSize || "--"}   Session: ${trade.session || "--"}   Duration: ${duration}`, hudX + 14, hudY + 62);
-  ctx.fillText(`Entry: ${etFmt(trade.entryDatetimeUtc)} ET   Exit: ${etFmt(trade.exitDatetimeUtc)} ET`, hudX + 14, hudY + 80);
+  ctx.fillText(`Contracts: ${trade.lotSize || "--"}   Session: ${trade.session || "--"}   Duration: ${duration}`, hudX + 14, hudY + 76);
+  ctx.fillText(`Entry: ${etFmt(trade.entryDatetimeUtc)} ET   Exit: ${etFmt(trade.exitDatetimeUtc)} ET`, hudX + 14, hudY + 94);
 
   // ── Watermark ──
   ctx.font = "10px -apple-system, Segoe UI, sans-serif";
