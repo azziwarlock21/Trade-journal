@@ -35,7 +35,14 @@ async function auth() {
 // 1 = Second, 2 = Minute, 3 = Hour, 4 = Day, 5 = Week, 6 = Month.
 // This matches the same gateway family (Auth/loginKey, Trade/search,
 // Account/search) already used by api/sync-topstepx.js in this project.
-const UNIT_MINUTE = 2;
+//
+// The caller (src/utils/timeframes.js) decides unit + unitNumber per
+// timeframe (e.g. unit=3/unitNumber=4 for a native 4-hour bar) — this
+// endpoint is a thin proxy, it never resamples or aggregates anything
+// itself. Every timeframe returned is a native bar size from TopstepX.
+const VALID_UNITS = new Set([1, 2, 3, 4, 5, 6]);
+const DEFAULT_UNIT = 2; // Minute, for backward compatibility with callers
+                        // that only ever asked for 1m bars (unit omitted).
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -57,11 +64,13 @@ export default async function handler(req, res) {
       contractId,
       startTime,
       endTime,
-      unitNumber = 1, // 1 = 1-minute bars, 5 = 5-minute, 15 = 15-minute
+      unit = DEFAULT_UNIT,
+      unitNumber = 1, // e.g. unit=2 (Minute) + unitNumber=5 -> native 5-minute bars
     } = req.body || {};
 
     if (!contractId) return res.status(400).json({ error: "contractId is required" });
     if (!startTime || !endTime) return res.status(400).json({ error: "startTime and endTime are required" });
+    if (!VALID_UNITS.has(unit)) return res.status(400).json({ error: `unit must be one of ${[...VALID_UNITS].join(", ")}` });
     if (!TSX_USERNAME || !TSX_API_KEY) {
       return res.status(500).json({ error: "TOPSTEPX_USERNAME / TOPSTEPX_API_KEY not configured on the server" });
     }
@@ -80,7 +89,7 @@ export default async function handler(req, res) {
         live: false, // historical data, not the live/practice feed
         startTime,
         endTime,
-        unit: UNIT_MINUTE,
+        unit,
         unitNumber,
         limit: 20000,
         includePartialBar: false,
