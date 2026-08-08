@@ -38,6 +38,16 @@ export const toRow = (t) => ({
   notes: t.notes || null,
   screenshot: t.screenshots ? JSON.stringify(t.screenshots) : null,
   screenshot_name: t.screenshots ? t.screenshots.map(s => s.name).join("|") : null,
+  // Chart reconstruction fields (additive columns — see migration notes).
+  // contract_id / *_utc come from the TopstepX sync; generated_charts /
+  // chart_status are only ever written back by the client after a render.
+  // Guard each with `!== undefined` so saving a normal edited trade (which
+  // won't carry these keys) never overwrites them with null.
+  ...(t.contractId !== undefined ? { contract_id: t.contractId || null } : {}),
+  ...(t.entryDatetimeUtc !== undefined ? { entry_datetime_utc: t.entryDatetimeUtc || null } : {}),
+  ...(t.exitDatetimeUtc !== undefined ? { exit_datetime_utc: t.exitDatetimeUtc || null } : {}),
+  ...(t.generatedCharts !== undefined ? { generated_charts: t.generatedCharts || [] } : {}),
+  ...(t.chartStatus !== undefined ? { chart_status: t.chartStatus || null } : {}),
 });
 
 export const fromRow = (r) => ({
@@ -70,12 +80,21 @@ export const fromRow = (r) => ({
     try { return r.screenshot ? JSON.parse(r.screenshot) : []; }
     catch (e) { return r.screenshot ? [{ data: r.screenshot, name: r.screenshot_name || "screenshot" }] : []; }
   })(),
+  // Chart reconstruction fields. contract_id/entry_datetime_utc/
+  // exit_datetime_utc are undefined (not null) on rows synced before the
+  // migration ran — the chart UI treats "undefined" as "can't generate,
+  // re-sync this trade" rather than showing a broken/empty chart attempt.
+  contractId: r.contract_id ?? undefined,
+  entryDatetimeUtc: r.entry_datetime_utc ?? undefined,
+  exitDatetimeUtc: r.exit_datetime_utc ?? undefined,
+  generatedCharts: r.generated_charts ?? [],
+  chartStatus: r.chart_status ?? "pending",
 });
 
 // All columns EXCEPT screenshot — for fast list load. Screenshots are
 // lazy-loaded per-trade via dbFetchScreenshots() to avoid downloading
 // megabytes of base64 image data on every page load.
-const LIGHT_COLS = "id,entry_datetime,exit_datetime,trade_type,direction,session,lot_size,entry_price,stop_loss,take_profit,points,rrr,candle_pattern,wick_direction,news,news_impact,htf_bias,market_structure,trade_mode,grade,execution_grade,outcome,mae,notes,screenshot_name";
+const LIGHT_COLS = "id,entry_datetime,exit_datetime,trade_type,direction,session,lot_size,entry_price,stop_loss,take_profit,points,rrr,candle_pattern,wick_direction,news,news_impact,htf_bias,market_structure,trade_mode,grade,execution_grade,outcome,mae,notes,screenshot_name,contract_id,entry_datetime_utc,exit_datetime_utc,generated_charts,chart_status";
 
 export async function dbFetchAll() {
   const res = await fetch(`${TABLE}?select=${LIGHT_COLS}&order=entry_datetime.desc&limit=2000`, {
@@ -109,6 +128,33 @@ export function compressImage(dataUrl, maxWidth = 1200, quality = 0.82) {
     };
     img.src = dataUrl;
   });
+}
+
+// ─── Generated chart storage ─────────────────────────────────────────────
+// Uploads a rendered chart (PNG data URL) to the `trade-charts` Supabase
+// Storage bucket and returns its public URL. Separate from the `screenshot`
+// column (which stores manually-pasted screenshots as base64 text) — see
+// migration notes for why this uses Storage instead of another base64 blob.
+const CHART_BUCKET = "trade-charts";
+
+export async function dbUploadChart(tradeId, timeframe, dataUrl) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const path = `${tradeId}/${timeframe}-${Date.now()}.png`;
+
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${CHART_BUCKET}/${path}`, {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "image/png",
+      "x-upsert": "true",
+    },
+    body: blob,
+  });
+
+  if (!res.ok) throw new Error(`Chart upload failed: ${await res.text()}`);
+
+  return `${SUPABASE_URL}/storage/v1/object/public/${CHART_BUCKET}/${path}`;
 }
 
 export async function dbInsert(trade) {
