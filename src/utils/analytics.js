@@ -270,42 +270,6 @@ export function groupIntoLogicalTrades(trades) {
   }));
 }
 
-export function buildTradesFromFills(fills) {
-  const trades = [];
-  let current = null;
-
-  fills.forEach((fill) => {
-    if (!current) {
-      current = {
-        entryTime: fill.time,
-        symbol: fill.symbol,
-        side: fill.side,
-        qty: fill.qty,
-        pnl: 0,
-        fills: [fill],
-      };
-      return;
-    }
-
-    current.fills.push(fill);
-
-    // opposite side = trade completed
-    if (fill.side !== current.side) {
-      current.exitTime = fill.time;
-      current.pnl += Number(fill.pnl || 0);
-
-      trades.push({
-        ...current,
-        tradeNumber: trades.length + 1,
-      });
-
-      current = null;
-    }
-  });
-
-  return trades;
-}
-
 export function computeStreaks(trades) {
   // Streaks are counted per logical trade, not per fill/row — a scaled
   // position closed all at once is one win or one loss, not several.
@@ -410,28 +374,7 @@ export function computeDayMap(trades) {
 
   return dayMap;
 }
-
-  export function computeDailyPnLSeries(trades) {
-  const days = {};
-
-  trades.forEach((trade) => {
-    const date = trade.date?.slice(0, 10);
-    if (!date) return;
-
-    if (!days[date]) {
-      days[date] = 0;
-    }
-
-    days[date] += Number(trade.pnl || 0);
-  });
-
-  return Object.entries(days)
-    .sort(([a], [b]) => new Date(a) - new Date(b))
-    .map(([date, pnl]) => ({
-      date,
-      pnl,
-    }));
-}
+  
 /**
  * TopstepX payout eligibility: at least MIN_QUALIFYING_DAYS separate
  * trading days each with net P&L >= MIN_DAILY_PROFIT. Uses the same
@@ -600,10 +543,11 @@ export function computeWinRateTrend(trades, windowSize = 20) {
 export function computeWeeklyPnLSeries(trades) {
   const byWeek = {};
 
+  // Count logical trades instead of individual fills
   const logicalTrades = groupIntoLogicalTrades(trades);
 
   logicalTrades.forEach(t => {
-    if (!t.entryDatetime) return;
+    if (!t.entryDatetime || !t.entryDatetime.includes("T")) return;
 
     const wk = getWeekStartKey(t.entryDatetime);
 
@@ -616,10 +560,10 @@ export function computeWeeklyPnLSeries(trades) {
     }
 
     byWeek[wk].pnl += (parseFloat(t.points) || 0) * 10;
-    byWeek[wk].trades++;
+    byWeek[wk].trades += 1;
 
     if (t.outcome === "Win") {
-      byWeek[wk].wins++;
+      byWeek[wk].wins += 1;
     }
   });
 
