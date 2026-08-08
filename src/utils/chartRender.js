@@ -19,6 +19,8 @@ const COLORS = {
   exitLine: "#e6edf3",
   slLine: "#ff4d6d",
   tpLine: "#00e5a0",
+  maeLine: "#f97316",
+  mfeLine: "#a78bfa",
   regionFill: "rgba(245, 200, 66, 0.06)",
   hudBg: "rgba(13, 17, 23, 0.88)",
   hudBorder: "#2a2f3a",
@@ -69,6 +71,21 @@ export function renderTradeChart({ bars, trade, timeframe = "1m", width = 1100, 
   const takeProfitTarget = parseFloat(trade.takeProfit);
   const isLong = trade.direction === "Long";
 
+  // MAE/MFE aren't stored as their own price columns — only the point
+  // magnitude (trade.mae / trade.mfe) is, same value the manual
+  // Auto-Calculate flow and the automatic at-import calculation both
+  // write. Derive the actual extreme price back out from entry price +
+  // magnitude + direction (inverse of the formula in maeMfe.js /
+  // _lib/maeMfeServer.js) so it can be drawn exactly like SL/TP.
+  const maeMagnitude = parseFloat(trade.mae);
+  const mfeMagnitude = parseFloat(trade.mfe);
+  const maePrice = !isNaN(maeMagnitude)
+    ? (isLong ? entryPrice - maeMagnitude : entryPrice + maeMagnitude)
+    : NaN;
+  const mfePrice = !isNaN(mfeMagnitude)
+    ? (isLong ? entryPrice + mfeMagnitude : entryPrice - mfeMagnitude)
+    : NaN;
+
   const entryIndex = nearestBarIndex(sorted, trade.entryDatetimeUtc);
   const exitIndex = nearestBarIndex(sorted, trade.exitDatetimeUtc);
 
@@ -93,7 +110,7 @@ export function renderTradeChart({ bars, trade, timeframe = "1m", width = 1100, 
   // ── Price range (include SL/TP/entry/exit so lines are always visible) ──
   const highs = sorted.map(b => b.high);
   const lows = sorted.map(b => b.low);
-  const extra = [entryPrice, exitPrice, stopLoss, takeProfitTarget].filter(v => !isNaN(v));
+  const extra = [entryPrice, exitPrice, stopLoss, takeProfitTarget, maePrice, mfePrice].filter(v => !isNaN(v));
   let maxP = Math.max(...highs, ...extra);
   let minP = Math.min(...lows, ...extra);
   const pad = (maxP - minP) * 0.08 || 1;
@@ -181,6 +198,11 @@ export function renderTradeChart({ bars, trade, timeframe = "1m", width = 1100, 
   }
 
   dashedLine(stopLoss, COLORS.slLine, "SL " + (isNaN(stopLoss) ? "" : stopLoss.toFixed(1)));
+  // MAE/MFE lines — only drawn when a value has actually been computed
+  // (see AutoMAE/MFE calc, run automatically at import or via the manual
+  // backfill tool for older trades).
+  if (!isNaN(maePrice)) dashedLine(maePrice, COLORS.maeLine, `MAE ${maePrice.toFixed(1)} (-${maeMagnitude.toFixed(1)}pt)`);
+  if (!isNaN(mfePrice)) dashedLine(mfePrice, COLORS.mfeLine, `MFE ${mfePrice.toFixed(1)} (+${mfeMagnitude.toFixed(1)}pt)`);
   // Only draw a separate TP line when it differs from the actual exit —
   // for TopstepX-imported trades, takeProfit IS the exit fill, so drawing
   // both would just be two identical lines.
