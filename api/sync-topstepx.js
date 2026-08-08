@@ -12,6 +12,8 @@ const TSX_API_KEY    = process.env.TOPSTEPX_API_KEY;
 const TSX_ACCOUNT_ID = process.env.TOPSTEPX_ACCOUNT_ID;
 const CRON_SECRET    = process.env.CRON_SECRET || "";
 
+import { tryComputeMaeMfe } from "./_lib/maeMfeServer.js";
+
 // ── Supabase ──────────────────────────────────────────────────────────────────
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -156,10 +158,10 @@ function getPV(contractId) {
 // then 2 SELL closes at same timestamp (4744.3), each with own P&L.
 // → 2 separate Long trades, NOT one 2-contract trade.
 
-function pairFills(fills) {
+function pairFills(fills, token) {
   const openBuys  = [];   // queue of BUY open fills (will be closed by SELL)
   const openSells = [];   // queue of SELL open fills (will be closed by BUY)
-  const trades    = [];
+  const tradePromises = [];
 
   for (let i = 0; i < fills.length; i++) {
     const f       = fills[i];
@@ -192,7 +194,7 @@ function pairFills(fills) {
       const points    = parseFloat((pnl / (pv * contracts)).toFixed(1));
       const outcome   = pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven";
 
-      trades.push(buildTrade(openFill, f, direction, entry, exit, contracts, pnl, points, outcome, pv));
+      tradePromises.push(buildTrade(openFill, f, direction, entry, exit, contracts, pnl, points, outcome, pv, token));
 
     } else {
       // BUY close = closing a Short (matched against oldest SELL open)
@@ -207,7 +209,7 @@ function pairFills(fills) {
       const points    = parseFloat((pnl / (pv * contracts)).toFixed(1));
       const outcome   = pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven";
 
-      trades.push(buildTrade(openFill, f, direction, entry, exit, contracts, pnl, points, outcome, pv));
+      tradePromises.push(buildTrade(openFill, f, direction, entry, exit, contracts, pnl, points, outcome, pv, token));
     }
   }
 
@@ -215,10 +217,10 @@ function pairFills(fills) {
   if (openBuys.length)  console.log(`${openBuys.length} open BUY(s) remaining — positions still live`);
   if (openSells.length) console.log(`${openSells.length} open SELL(s) remaining — positions still live`);
 
-  return trades;
+  return Promise.all(tradePromises);
 }
 
-function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl, points, outcome, pv) {
+async function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl, points, outcome, pv, token) {
   const fees     = (openFill.fees || 0) + (closeFill.fees || 0);
   const isMicro  = (openFill.contractId || "").includes("MGC");
   const tsxId    = [openFill.id, closeFill.id].sort().join("_");
@@ -252,6 +254,15 @@ function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl,
     ` | ${outcome} | ${toET(openFill.creationTimestamp)}`
   );
 
+  const entryUtc = new Date(openFill.creationTimestamp).toISOString();
+  const exitUtc  = new Date(closeFill.creationTimestamp).toISOString();
+
+  // Computed automatically at import time from actual 1-minute bars over
+  // the entry→exit window — no manual "Auto-Calculate" step needed per
+  // trade. Never blocks the import: falls back to null on any failure
+  // (rate limit, contract lookup miss, etc.), same as chart generation.
+  const maeMfe = await tryComputeMaeMfe(token, openFill.contractId, entryUtc, exitUtc, entry, direction);
+
   return {
     id:               Date.now() + Math.floor(Math.random() * 999999),
 
@@ -269,8 +280,8 @@ function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl,
     // the DST rule for that date. Storing the original UTC instant up front
     // avoids that round-trip entirely and is what chart reconstruction
     // should key off of.
-    entry_datetime_utc: new Date(openFill.creationTimestamp).toISOString(),
-    exit_datetime_utc:  new Date(closeFill.creationTimestamp).toISOString(),
+    entry_datetime_utc: entryUtc,
+    exit_datetime_utc:  exitUtc,
 
     // Chart reconstruction state — populated later by the client when it
     // calls /api/get-trade-bars and renders/uploads a chart. Never blocks
@@ -286,7 +297,8 @@ function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl,
     points:           String(points),
     rrr:              rrr,
     outcome,
-    mae:              null,
+    mae:              maeMfe?.mae ?? null,
+    mfe:              maeMfe?.mfe ?? null,
     session:          getSession(openFill.creationTimestamp),
     trade_mode:       "Live",
     grade:            "Ungraded",
@@ -361,7 +373,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, synced: 0, message: "No fills" });
     }
 
-    const trades = pairFills(fills);
+    const trades = await pairFills(fills, token);
     console.log(`${trades.length} trades paired`);
 
     // Dedup
