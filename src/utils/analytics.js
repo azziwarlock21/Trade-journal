@@ -40,8 +40,7 @@ function getTradeOutcome(trade) {
 }
 
 export function computeStats(src) {
-  
-  if (!src.length) return null;
+  if (!Array.isArray(src) || !src.length) return null;
 
   // Keep both datasets available.
   // fills = every TopstepX fill
@@ -217,7 +216,13 @@ function parseTradeDateTime(dt) {
 }
 
 export function groupIntoLogicalTrades(trades) {
-  const withTimes = trades.filter(t => t.entryDatetime && t.exitDatetime);
+  // Defensive: every caller expects an array, but degrade gracefully
+  // instead of throwing if something upstream ever hands this
+  // null/undefined/a single object (a bad Supabase response shape, a
+  // stale prop during a render, etc.) — one bad trade record shouldn't
+  // take down the whole Analytics tab.
+  const list = Array.isArray(trades) ? trades : [];
+  const withTimes = list.filter(t => t && t.entryDatetime && t.exitDatetime);
   const sorted = [...withTimes].sort((a, b) => (a.entryDatetime < b.entryDatetime ? -1 : 1));
 
   const toMinutes = (dt) => {
@@ -534,7 +539,7 @@ export function computeWinLossExtremes(trades) {
  * win rate number hides this).
  */
 export function computeWinRateTrend(trades, windowSize = 20) {
-  const sorted = [...trades].sort((a, b) => (a.entryDatetime < b.entryDatetime ? -1 : 1));
+  const sorted = [...(Array.isArray(trades) ? trades : [])].sort((a, b) => (a.entryDatetime < b.entryDatetime ? -1 : 1));
   const points = [];
   for (let i = 0; i < sorted.length; i++) {
     const windowStart = Math.max(0, i - windowSize + 1);
@@ -613,7 +618,7 @@ const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "
 export function computeByWeekday(trades) {
   const byDay = {};
   WEEKDAY_NAMES.forEach(d => { byDay[d] = { total: 0, wins: 0 }; });
-  trades.forEach(t => {
+  (Array.isArray(trades) ? trades : []).forEach(t => {
     if (!t.entryDatetime || !t.entryDatetime.includes("T")) return;
     // Parse Y/M/D as plain integers and compute weekday with Date.UTC —
     // this is deterministic regardless of the browser's local timezone,
@@ -643,7 +648,7 @@ export function computeByWeekday(trades) {
  */
 export function computeByHour(trades) {
   const byHour = {};
-  trades.forEach(t => {
+  (Array.isArray(trades) ? trades : []).forEach(t => {
     const hr = getETHour(t.entryDatetime);
     if (hr === null) return;
     const key = `${hr.toString().padStart(2, "0")}:00`;
@@ -662,7 +667,7 @@ export function computeByHour(trades) {
  */
 export function computeByDirection(trades) {
   const result = { Long: { total: 0, wins: 0, points: 0 }, Short: { total: 0, wins: 0, points: 0 } };
-  trades.forEach(t => {
+  (Array.isArray(trades) ? trades : []).forEach(t => {
     if (!t.direction || !result[t.direction]) return;
     result[t.direction].total++;
     if (getTradeOutcome(t) === "Win") result[t.direction].wins++;
@@ -680,7 +685,7 @@ export function computeByDirection(trades) {
  */
 export function computeByNewsImpact(trades) {
   const result = {};
-  trades.forEach(t => {
+  (Array.isArray(trades) ? trades : []).forEach(t => {
     const key = (!t.news || t.news === "None") ? "No News Nearby" : `${t.news} (${t.newsImpact || "Low"})`;
     if (!result[key]) result[key] = { total: 0, wins: 0 };
     result[key].total++;
@@ -698,8 +703,9 @@ export function computeByNewsImpact(trades) {
  * references — it does not duplicate that explanatory text.
  */
 export function computeExcursionStats(trades) {
-  const withMAE = trades.filter(t => t.mae !== undefined && t.mae !== null && t.mae !== "");
-  const withMFE = trades.filter(t => t.mfe !== undefined && t.mfe !== null && t.mfe !== "");
+  const list = Array.isArray(trades) ? trades : [];
+  const withMAE = list.filter(t => t.mae !== undefined && t.mae !== null && t.mae !== "");
+  const withMFE = list.filter(t => t.mfe !== undefined && t.mfe !== null && t.mfe !== "");
 
   const avg = (arr, key) => (arr.length ? arr.reduce((s, t) => s + parseFloat(t[key]), 0) / arr.length : null);
 
@@ -750,7 +756,7 @@ export function computeByHoldTime(trades) {
     };
   });
 
-  trades.forEach(trade => {
+  (Array.isArray(trades) ? trades : []).forEach(trade => {
     if (!trade.entryDatetime || !trade.exitDatetime) return;
 
     const entry = parseTradeDateTime(trade.entryDatetime);
