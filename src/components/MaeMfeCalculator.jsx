@@ -17,6 +17,13 @@ export default function MaeMfeCalculator({ trade, onUpdate }) {
   const canCalc = !!trade.contractId && !!trade.entryDatetimeUtc && !!trade.exitDatetimeUtc;
   if (!canCalc) return null;
 
+  // Already computed — either automatically at import, or by a previous
+  // manual run. Don't show the full "Auto-Calculate" call-to-action for
+  // something that's already done; just offer a small, de-emphasized way
+  // to redo it (e.g. if the trade's stop/entry got edited afterward).
+  const alreadyComputed = trade.mae !== null && trade.mae !== undefined && trade.mae !== ""
+    && trade.mfe !== null && trade.mfe !== undefined && trade.mfe !== "";
+
   const handleCalculate = async () => {
     setStatus("loading");
     setError("");
@@ -50,9 +57,18 @@ export default function MaeMfeCalculator({ trade, onUpdate }) {
 
   return (
     <div style={{ gridColumn: "1/-1", marginTop: 4 }}>
-      {status === "idle" && (
+      {status === "idle" && !alreadyComputed && (
         <button onClick={handleCalculate} style={btnStyle("#a78bfa")}>
           Auto-Calculate MAE/MFE from Market Data
+        </button>
+      )}
+
+      {status === "idle" && alreadyComputed && (
+        <button
+          onClick={handleCalculate}
+          style={{ background: "none", border: "none", padding: 0, color: "#6b7280", fontSize: 10, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}
+        >
+          Recalculate MAE/MFE
         </button>
       )}
 
