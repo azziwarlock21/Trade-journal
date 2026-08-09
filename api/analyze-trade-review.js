@@ -11,7 +11,12 @@
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const CRON_SECRET = (process.env.CRON_SECRET || "").trim();
-const MODEL = "gemini-2.5-flash";
+// Google retires/renames Gemini model IDs frequently (this endpoint was
+// on gemini-2.5-flash until Google pulled it from new users ahead of its
+// own published shutdown date). If this starts erroring with "no longer
+// available", check https://ai.google.dev/gemini-api/docs/models for the
+// current free-tier model name.
+const MODEL = "gemini-3.1-flash-lite";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 // Splits a "data:image/jpeg;base64,AAAA..." URL into the pieces Gemini's
