@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useTrades } from "./hooks/useTrades.js";
 import { useFinancialData } from "./hooks/useFinancialData.js";
 import { useTopstepXSync } from "./hooks/useTopstepXSync.js";
+import { useAutoGeneration } from "./hooks/useAutoGeneration.js";
 import { exportTradesCSV, importTradesCSV } from "./utils/csv.js";
 
 import Header from "./components/Header.jsx";
@@ -46,6 +47,10 @@ export default function GCJournal() {
 
   // ── Trades (form, list, CRUD, screenshots) ───────────────────────────────
   const trades = useTrades();
+  // Runs in the background across the whole app (not gated to a tab) —
+  // fills MAE/MFE and all 5 chart timeframes automatically for any
+  // TopstepX trade missing them, no button required.
+  useAutoGeneration(trades.trades, (updated) => trades.setTrades(ts => ts.map(x => x.id === updated.id ? updated : x)));
 
   // ── Financial data (payouts, expenses, tax, weekly review) ───────────────
   const fin = useFinancialData();
