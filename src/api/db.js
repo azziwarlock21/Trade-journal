@@ -94,7 +94,7 @@ export const fromRow = (r) => ({
 // All columns EXCEPT screenshot — for fast list load. Screenshots are
 // lazy-loaded per-trade via dbFetchScreenshots() to avoid downloading
 // megabytes of base64 image data on every page load.
-const LIGHT_COLS = "id,entry_datetime,exit_datetime,trade_type,direction,session,lot_size,entry_price,stop_loss,take_profit,points,rrr,candle_pattern,wick_direction,news,news_impact,htf_bias,market_structure,trade_mode,grade,execution_grade,outcome,mae,notes,screenshot_name,contract_id,entry_datetime_utc,exit_datetime_utc,generated_charts,chart_status";
+const LIGHT_COLS = "id,entry_datetime,exit_datetime,trade_type,direction,session,lot_size,entry_price,stop_loss,take_profit,points,rrr,candle_pattern,wick_direction,news,news_impact,htf_bias,market_structure,trade_mode,grade,execution_grade,outcome,mae,mfe,notes,screenshot_name,contract_id,entry_datetime_utc,exit_datetime_utc,generated_charts,chart_status";
 
 export async function dbFetchAll() {
   const res = await fetch(`${TABLE}?select=${LIGHT_COLS}&order=entry_datetime.desc&limit=2000`, {
