@@ -13,7 +13,7 @@ const TYPE_ICON  = { positive: "▲", warning: "!", critical: "✕" };
 // Two independent tools in one tab:
 //   A. Pattern Analysis — instant, free, runs entirely client-side against
 //      the full trade history (see utils/coachAnalysis.js).
-//   B. Per-Trade AI Review — sends one trade + its screenshots to OpenAI
+//   B. Per-Trade AI Review — sends one trade + its screenshots to Gemini
 //      for a structured coaching writeup (see utils/coachReview.js).
 //
 // Owns its own local UI state (loading/results) since neither tool needs
@@ -91,7 +91,7 @@ export default function AICoach({ trades, setTrades, openLightbox }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#f5c842", letterSpacing: 2, textTransform: "uppercase" }}>Trading Edge Report</div>
-            <div style={{ fontSize: 10, color: "#4b5563", marginTop: 3 }}>OpenAI synthesizes your full history — win rate, session/hour/direction/hold-time breakdowns, MAE/MFE — into one followable edge.</div>
+            <div style={{ fontSize: 10, color: "#4b5563", marginTop: 3 }}>Gemini synthesizes your full history — win rate, session/hour/direction/hold-time breakdowns, MAE/MFE — into one followable edge.</div>
           </div>
           <button onClick={handleGenerateEdge} disabled={edgeLoading || trades.length < 10}
             style={{ padding: "10px 22px", borderRadius: 9, border: "none", background: edgeLoading ? "#2a2f3a" : "linear-gradient(135deg, #f5c842, #ff9a3c)", color: edgeLoading ? "#6b7280" : "#070b12", fontWeight: 700, fontSize: 11, cursor: edgeLoading || trades.length < 10 ? "not-allowed" : "pointer", fontFamily: "inherit", letterSpacing: 2 }}>
@@ -154,7 +154,7 @@ export default function AICoach({ trades, setTrades, openLightbox }) {
       {/* ── Section C: Per-Trade AI Review ── */}
       <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 14, padding: 24 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "#e6edf3", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Per-Trade AI Review</div>
-        <div style={{ fontSize: 10, color: "#4b5563", marginBottom: 16 }}>Select any trade below. OpenAI will analyse the chart screenshots + trade data and give specific coaching feedback.</div>
+        <div style={{ fontSize: 10, color: "#4b5563", marginBottom: 16 }}>Select any trade below. Gemini will analyse the chart screenshots + trade data and give specific coaching feedback.</div>
 
         {trades.length === 0 ? (
           <div style={{ fontSize: 11, color: "#4b5563" }}>No trades logged yet.</div>
@@ -182,7 +182,7 @@ export default function AICoach({ trades, setTrades, openLightbox }) {
           <div style={{ background: "#070b12", border: "1px solid #1f2937", borderRadius: 10, padding: 24, textAlign: "center" }}>
             <div style={{ fontSize: 13, color: "#f5c842", marginBottom: 8 }}>Reviewing trade...</div>
             <div style={{ fontSize: 10, color: "#4b5563" }}>
-              OpenAI is analysing {reviewTrade?.screenshots?.length > 0 ? `${reviewTrade.screenshots.length} screenshot(s) and` : ""} trade data
+              Gemini is analysing {reviewTrade?.screenshots?.length > 0 ? `${reviewTrade.screenshots.length} screenshot(s) and` : ""} trade data
             </div>
           </div>
         )}
