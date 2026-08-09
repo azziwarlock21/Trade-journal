@@ -33,6 +33,13 @@ function missingTimeframes(t) {
   return PRIMARY_TIMEFRAMES.filter(tf => !have.has(tf));
 }
 
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// Gap between individual bar-fetch calls (MAE/MFE, each chart timeframe).
+// TopstepX's own login rate limit is what "auth response was not JSON"
+// meant — this, plus token caching in api/get-trade-bars.js, keeps the
+// background queue from hammering it with a burst of back-to-back calls.
+const CALL_GAP_MS = 1200;
+
 export function useAutoGeneration(trades, onUpdateTrade) {
   const runningRef = useRef(false);
   const attemptedRef = useRef(new Set());
@@ -77,6 +84,7 @@ export function useAutoGeneration(trades, onUpdateTrade) {
       }
 
       for (const tf of missingTimeframes(working)) {
+        await sleep(CALL_GAP_MS);
         try {
           const bars = await fetchTradeBars(working, { timeframe: tf });
           const { dataUrl } = renderTradeChart({ bars, trade: working, timeframe: tf });
