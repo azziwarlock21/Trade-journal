@@ -1,6 +1,7 @@
 // ============================================================
-// analyze-trades.js — Server-side OpenAI trade-edge analysis.
-// Replaces the previous Anthropic/Claude-based implementation.
+// analyze-trades.js — Server-side Gemini trade-edge analysis.
+// Replaces the previous OpenAI-based implementation (switched to Gemini
+// for its genuinely free API tier — see project notes).
 //
 // Reuses the project's existing analytics.js (same functions the
 // Analytics/PerformanceDashboard/ProfessionalStats tabs already use) to
@@ -10,15 +11,16 @@
 // over numbers this app already trusts rather than being asked to do the
 // arithmetic itself.
 //
-// The OpenAI key lives ONLY here (process.env.OPENAI_API_KEY) — never in
-// src/, never via a VITE_ variable, never called directly from the browser.
+// Plain REST call, no SDK — the Gemini API is a normal fetch()-able
+// endpoint, so there's nothing to `npm install` for this one. The key
+// lives ONLY here (process.env.GEMINI_API_KEY) — never in src/, never via
+// a VITE_ variable, never called directly from the browser.
 // ============================================================
 
-import OpenAI from "openai";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const CRON_SECRET = process.env.CRON_SECRET || "";
-const MODEL = "gpt-5.4";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const CRON_SECRET = (process.env.CRON_SECRET || "").trim();
+const MODEL = "gemini-2.5-flash";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 const systemPrompt = `
 You are an expert quantitative trading analyst.
@@ -102,11 +104,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Same lightweight bearer-secret convention as every other endpoint in
-  // this project (sync-topstepx.js, get-trade-bars.js) — not in the
-  // original spec's example, added so this can't be hit anonymously and
-  // run up your OpenAI bill. The client sends VITE_CRON_SECRET the same
-  // way it already does for the TopstepX endpoints.
   if (CRON_SECRET) {
     const authHeader = (req.headers.authorization || "").replace("Bearer ", "").trim();
     if (authHeader !== CRON_SECRET) {
@@ -114,8 +111,8 @@ export default async function handler(req, res) {
     }
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: "OPENAI_API_KEY not configured on the server" });
+  if (!GEMINI_API_KEY) {
+    return res.status(500).json({ error: "GEMINI_API_KEY not configured on the server" });
   }
 
   try {
@@ -138,22 +135,33 @@ Trade data:
 ${JSON.stringify(trades, null, 2)}
 `;
 
-    const response = await openai.responses.create({
-      model: MODEL,
-      input: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
+    const geminiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+      }),
     });
 
-    return res.status(200).json({
-      success: true,
-      analysis: response.output_text,
-    });
+    const data = await geminiRes.json();
+    if (!geminiRes.ok) {
+      throw new Error(data?.error?.message || `Gemini API error (${geminiRes.status})`);
+    }
+
+    const analysis = (data.candidates?.[0]?.content?.parts || [])
+      .map(p => p.text || "").join("\n").trim();
+
+    if (!analysis) {
+      const blockReason = data.promptFeedback?.blockReason;
+      throw new Error(blockReason ? `Gemini blocked the request: ${blockReason}` : "Gemini returned an empty response");
+    }
+
+    return res.status(200).json({ success: true, analysis });
   } catch (error) {
-    console.error("OpenAI analysis error:", error);
+    console.error("Gemini analysis error:", error);
     return res.status(500).json({
-      error: error.message || "OpenAI analysis failed",
+      error: error.message || "Gemini analysis failed",
     });
   }
 }

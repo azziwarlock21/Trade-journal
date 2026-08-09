@@ -1,18 +1,27 @@
 // ============================================================
-// analyze-trade-review.js — Server-side OpenAI per-trade review
+// analyze-trade-review.js — Server-side Gemini per-trade review
 // (chart screenshots + trade data -> structured coaching feedback).
 //
-// Companion to api/analyze-trades.js (which handles the full-history
-// Trading Edge report) — this one reviews a single trade, using OpenAI's
-// vision input when screenshots are attached. Same key-handling rules:
-// OPENAI_API_KEY lives only here, never in client code.
+// Companion to api/analyze-trades.js (full-history Trading Edge report) —
+// this one reviews a single trade, using Gemini's native image
+// understanding when screenshots are attached. Gemini's free tier
+// supports vision fully (unlike OpenAI's, which drops to text-only
+// without billing enabled), which is why this moved off OpenAI.
 // ============================================================
 
-import OpenAI from "openai";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const CRON_SECRET = (process.env.CRON_SECRET || "").trim();
+const MODEL = "gemini-2.5-flash";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const CRON_SECRET = process.env.CRON_SECRET || "";
-const MODEL = "gpt-5.4";
+// Splits a "data:image/jpeg;base64,AAAA..." URL into the pieces Gemini's
+// inline_data part wants. Falls back to image/jpeg if the data URL is
+// missing a mime type for some reason.
+function parseDataUrl(dataUrl) {
+  const match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || "");
+  if (match) return { mimeType: match[1], data: match[2] };
+  return { mimeType: "image/jpeg", data: dataUrl || "" };
+}
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -25,27 +34,42 @@ export default async function handler(req, res) {
     const authHeader = (req.headers.authorization || "").replace("Bearer ", "").trim();
     if (authHeader !== CRON_SECRET) return res.status(401).json({ error: "Unauthorized" });
   }
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: "OPENAI_API_KEY not configured on the server" });
+  if (!GEMINI_API_KEY) {
+    return res.status(500).json({ error: "GEMINI_API_KEY not configured on the server" });
   }
 
   try {
     const { prompt, images } = req.body || {};
     if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
-    const content = [{ type: "input_text", text: prompt }];
+    const parts = [{ text: prompt }];
     for (const dataUrl of images || []) {
-      content.push({ type: "input_image", image_url: dataUrl });
+      const { mimeType, data } = parseDataUrl(dataUrl);
+      parts.push({ inline_data: { mime_type: mimeType, data } });
     }
 
-    const response = await openai.responses.create({
-      model: MODEL,
-      input: [{ role: "user", content }],
+    const geminiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ role: "user", parts }] }),
     });
 
-    return res.status(200).json({ success: true, text: response.output_text });
+    const data = await geminiRes.json();
+    if (!geminiRes.ok) {
+      throw new Error(data?.error?.message || `Gemini API error (${geminiRes.status})`);
+    }
+
+    const text = (data.candidates?.[0]?.content?.parts || [])
+      .map(p => p.text || "").join("\n").trim();
+
+    if (!text) {
+      const blockReason = data.promptFeedback?.blockReason;
+      throw new Error(blockReason ? `Gemini blocked the request: ${blockReason}` : "Gemini returned an empty response");
+    }
+
+    return res.status(200).json({ success: true, text });
   } catch (error) {
-    console.error("OpenAI trade review error:", error);
-    return res.status(500).json({ error: error.message || "OpenAI review failed" });
+    console.error("Gemini trade review error:", error);
+    return res.status(500).json({ error: error.message || "Gemini review failed" });
   }
 }
