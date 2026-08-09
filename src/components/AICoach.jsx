@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { runDataAnalysis } from "../utils/coachAnalysis.js";
 import { reviewTradeWithAI } from "../utils/coachReview.js";
+import { generateTradingEdgeReport } from "../utils/coachEdge.js";
 import { dbFetchScreenshots } from "../api/db.js";
 import { gradeColor, outcomeColor } from "../utils/helpers.js";
 
@@ -29,6 +30,23 @@ export default function AICoach({ trades, setTrades, openLightbox }) {
   const [reviewResult, setReviewResult] = useState("");
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState("");
+
+  const [edgeReport, setEdgeReport] = useState("");
+  const [edgeLoading, setEdgeLoading] = useState(false);
+  const [edgeError, setEdgeError] = useState("");
+
+  const handleGenerateEdge = useCallback(async () => {
+    if (trades.length < 10) { setEdgeError("Log at least 10 trades before running this — the edge it finds needs a real sample to be trustworthy."); return; }
+    setEdgeLoading(true); setEdgeError(""); setEdgeReport("");
+    try {
+      const report = await generateTradingEdgeReport(trades);
+      setEdgeReport(report);
+    } catch (e) {
+      setEdgeError("Analysis failed: " + e.message);
+    } finally {
+      setEdgeLoading(false);
+    }
+  }, [trades]);
 
   const handleRunAnalysis = useCallback(() => {
     if (trades.length < 5) { setAnalysisError("Log at least 5 trades before running analysis."); return; }
@@ -66,9 +84,40 @@ export default function AICoach({ trades, setTrades, openLightbox }) {
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 20px" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 6 }}>AI Coach</div>
-      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 24 }}>Two tools: data-driven pattern analysis across all your trades, and per-trade AI review using your screenshots.</div>
+      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 24 }}>Three tools: an AI-synthesized trading edge from your full history, instant rule-based pattern analysis, and per-trade AI review using your screenshots.</div>
 
-      {/* ── Section A: Pattern Analysis ── */}
+      {/* ── Section A: Trading Edge Report ── */}
+      <div style={{ background: "#0d1117", border: "1px solid #f5c84233", borderRadius: 14, padding: 24, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#f5c842", letterSpacing: 2, textTransform: "uppercase" }}>Trading Edge Report</div>
+            <div style={{ fontSize: 10, color: "#4b5563", marginTop: 3 }}>Claude synthesizes your full history — win rate, session/hour/direction/hold-time breakdowns, MAE/MFE — into one followable edge.</div>
+          </div>
+          <button onClick={handleGenerateEdge} disabled={edgeLoading || trades.length < 10}
+            style={{ padding: "10px 22px", borderRadius: 9, border: "none", background: edgeLoading ? "#2a2f3a" : "linear-gradient(135deg, #f5c842, #ff9a3c)", color: edgeLoading ? "#6b7280" : "#070b12", fontWeight: 700, fontSize: 11, cursor: edgeLoading || trades.length < 10 ? "not-allowed" : "pointer", fontFamily: "inherit", letterSpacing: 2 }}>
+            {edgeLoading ? "Analysing..." : edgeReport ? "Regenerate" : "Generate Edge Report"}
+          </button>
+        </div>
+
+        {edgeError && <div style={{ fontSize: 11, color: "#ff4d6d", marginBottom: 12 }}>{edgeError}</div>}
+        {trades.length < 10 && !edgeError && <div style={{ fontSize: 11, color: "#4b5563" }}>Log at least 10 trades for a report with a real sample behind it.</div>}
+
+        {edgeLoading && (
+          <div style={{ background: "#070b12", border: "1px solid #1f2937", borderRadius: 10, padding: 24, textAlign: "center" }}>
+            <div style={{ fontSize: 13, color: "#f5c842", marginBottom: 8 }}>Analysing {trades.length} trades...</div>
+            <div style={{ fontSize: 10, color: "#4b5563" }}>Crunching win rate, session/hour/direction/hold-time, MAE/MFE, and pattern findings</div>
+          </div>
+        )}
+
+        {edgeReport && !edgeLoading && (
+          <div style={{ background: "#070b12", border: "1px solid #f5c84233", borderRadius: 12, padding: 22 }}>
+            <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.9, whiteSpace: "pre-wrap" }}>{edgeReport}</div>
+            <div style={{ fontSize: 9, color: "#2a2f3a", textAlign: "right", marginTop: 12, letterSpacing: 2 }}>{trades.length} TRADES ANALYSED</div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Section B: Pattern Analysis ── */}
       <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 14, padding: 24, marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
           <div>
@@ -102,7 +151,7 @@ export default function AICoach({ trades, setTrades, openLightbox }) {
         )}
       </div>
 
-      {/* ── Section B: Per-Trade AI Review ── */}
+      {/* ── Section C: Per-Trade AI Review ── */}
       <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 14, padding: 24 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "#e6edf3", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 }}>Per-Trade AI Review</div>
         <div style={{ fontSize: 10, color: "#4b5563", marginBottom: 16 }}>Select any trade below. Claude will analyse the chart screenshots + trade data and give specific coaching feedback.</div>
