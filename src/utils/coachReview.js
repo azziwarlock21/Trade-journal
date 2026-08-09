@@ -1,7 +1,8 @@
-// ─── AI Coach — Per-Trade Claude Review ───────────────────────────────────
-// Sends a single trade's data (+ screenshots, if present) to the Claude API
-// for a structured coaching review. Separate from coachAnalysis.js since
-// this one costs API tokens and requires network access.
+// ─── AI Coach — Per-Trade Review (OpenAI) ────────────────────────────────
+// Sends a single trade's data (+ screenshots, if present) to OpenAI, via
+// api/analyze-trade-review.js, for a structured coaching review. Separate
+// from coachAnalysis.js since this one costs API tokens and requires
+// network access.
 
 function buildTradeContext(trade) {
   return [
@@ -27,37 +28,27 @@ function buildPrompt(tradeContext, hasScreenshots) {
 }
 
 /**
- * Sends a trade to Claude for review. `trade.screenshots` should already
- * be loaded (call dbFetchScreenshots first if trade.screenshotsLoaded is
- * false) — this function does not lazy-load them itself.
+ * Sends a trade to OpenAI (api/analyze-trade-review.js) for review.
+ * `trade.screenshots` should already be loaded (call dbFetchScreenshots
+ * first if trade.screenshotsLoaded is false) — this function does not
+ * lazy-load them itself.
  */
 export async function reviewTradeWithAI(trade) {
   const tradeContext = buildTradeContext(trade);
   const hasScreenshots = trade.screenshots && trade.screenshots.length > 0;
   const prompt = buildPrompt(tradeContext, hasScreenshots);
 
-  const messages = hasScreenshots
-    ? [{
-        role: "user",
-        content: [
-          ...trade.screenshots.map(ss => ({
-            type: "image",
-            source: { type: "base64", media_type: "image/jpeg", data: ss.data.includes(",") ? ss.data.split(",")[1] : ss.data },
-          })),
-          { type: "text", text: prompt },
-        ],
-      }]
-    : [{ role: "user", content: prompt }];
+  // Screenshots are already stored as data URLs (see db.js) — OpenAI's
+  // Responses API takes those directly as input_image, no reformatting
+  // needed (Anthropic's format required splitting into base64 + media_type
+  // separately; OpenAI just wants the data URL as-is).
+  const images = hasScreenshots ? trade.screenshots.map(ss => ss.data) : [];
 
-  // Routed through api/ai-coach.js — the browser can't call
-  // api.anthropic.com directly (no API key belongs in client code, and
-  // Anthropic's API doesn't accept direct cross-origin browser requests
-  // anyway). Same pattern as the TopstepX proxy endpoints.
   const secret = import.meta.env.VITE_CRON_SECRET || "";
-  const res = await fetch(`${window.location.origin}/api/ai-coach`, {
+  const res = await fetch(`${window.location.origin}/api/analyze-trade-review`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${secret}` },
-    body: JSON.stringify({ messages, max_tokens: 1000 }),
+    body: JSON.stringify({ prompt, images }),
   });
   const data = await res.json();
   if (!res.ok || !data.success) throw new Error(data.error || "AI review failed");
