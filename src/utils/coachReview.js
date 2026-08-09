@@ -49,12 +49,17 @@ export async function reviewTradeWithAI(trade) {
       }]
     : [{ role: "user", content: prompt }];
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  // Routed through api/ai-coach.js — the browser can't call
+  // api.anthropic.com directly (no API key belongs in client code, and
+  // Anthropic's API doesn't accept direct cross-origin browser requests
+  // anyway). Same pattern as the TopstepX proxy endpoints.
+  const secret = import.meta.env.VITE_CRON_SECRET || "";
+  const res = await fetch(`${window.location.origin}/api/ai-coach`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages }),
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${secret}` },
+    body: JSON.stringify({ messages, max_tokens: 1000 }),
   });
   const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.content.map(b => b.text || "").join("\n").trim();
+  if (!res.ok || !data.success) throw new Error(data.error || "AI review failed");
+  return data.text;
 }
