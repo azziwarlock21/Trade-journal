@@ -58,9 +58,16 @@ export default function MaeMfeCalculator({ trade, onUpdate }) {
   return (
     <div style={{ gridColumn: "1/-1", marginTop: 4 }}>
       {status === "idle" && !alreadyComputed && (
-        <button onClick={handleCalculate} style={btnStyle("#a78bfa")}>
-          Auto-Calculate MAE/MFE from Market Data
-        </button>
+        <div>
+          <button onClick={handleCalculate} style={btnStyle("#a78bfa")}>
+            Auto-Calculate MAE/MFE from Market Data
+          </button>
+          {trade._autoMaeMfeError && (
+            <div style={{ fontSize: 10, color: "#ff4d6d", marginTop: 6 }}>
+              Background auto-calc failed: {trade._autoMaeMfeError}
+            </div>
+          )}
+        </div>
       )}
 
       {status === "idle" && alreadyComputed && (

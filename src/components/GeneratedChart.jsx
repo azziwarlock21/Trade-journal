@@ -163,6 +163,11 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
         <div style={{ fontSize: 11, color: "#6b7280" }}>
           {autoGenerating ? "Generating…" : "Queued for automatic generation."}{" "}
           <button onClick={handleGeneratePreview} style={linkStyle}>Generate now</button>
+          {trade._autoChartError && trade._autoChartError.startsWith(activeTab) && (
+            <div style={{ fontSize: 10, color: "#ff4d6d", marginTop: 6 }}>
+              Background auto-generate failed: {trade._autoChartError}
+            </div>
+          )}
         </div>
       )}
 
