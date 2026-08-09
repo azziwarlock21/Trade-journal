@@ -15,7 +15,24 @@ const TSX_USERNAME = process.env.TOPSTEPX_USERNAME;
 const TSX_API_KEY  = process.env.TOPSTEPX_API_KEY;
 const CRON_SECRET  = process.env.CRON_SECRET || "";
 
-async function auth() {
+// ─── Token cache ────────────────────────────────────────────────────────
+// The chart/MAE-MFE background pipeline can fire many bar requests back to
+// back (up to 6 per trade — 1 for MAE/MFE + 5 timeframes — across a whole
+// backlog of trades). Re-authenticating with TopstepX on every single one
+// of those calls is what was tripping TopstepX's own login rate limit
+// (which returns an HTML/plain-text "too many requests" response instead
+// of JSON — that's the "auth response was not JSON" error). Module-level
+// vars persist across invocations on a warm serverless instance, so this
+// reuses one token instead of logging in every time.
+let cachedToken = null;
+let cachedTokenAt = 0;
+const TOKEN_TTL_MS = 15 * 60 * 1000; // conservative — re-auth every 15 min
+
+async function auth(forceFresh = false) {
+  if (!forceFresh && cachedToken && Date.now() - cachedTokenAt < TOKEN_TTL_MS) {
+    return cachedToken;
+  }
+
   const r = await fetch(`${TOPSTEPX_API}/api/Auth/loginKey`, {
     method: "POST",
     headers: { "Content-Type": "application/json", accept: "application/json" },
@@ -25,10 +42,13 @@ async function auth() {
   const text = await r.text();
   let d;
   try { d = JSON.parse(text); }
-  catch { throw new Error(`TopstepX auth response was not JSON: ${text.slice(0, 200)}`); }
+  catch { throw new Error(`TopstepX auth response was not JSON (status ${r.status}): ${text.slice(0, 200) || "(empty body)"}`); }
 
   if (!d.token) throw new Error(`TopstepX authentication failed: ${JSON.stringify(d)}`);
-  return d.token;
+
+  cachedToken = d.token;
+  cachedTokenAt = Date.now();
+  return cachedToken;
 }
 
 // ProjectX/TopstepX gateway `unit` values for History/retrieveBars:
@@ -77,7 +97,7 @@ export default async function handler(req, res) {
 
     const token = await auth();
 
-    const response = await fetch(`${TOPSTEPX_API}/api/History/retrieveBars`, {
+    let response = await fetch(`${TOPSTEPX_API}/api/History/retrieveBars`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -95,6 +115,30 @@ export default async function handler(req, res) {
         includePartialBar: false,
       }),
     });
+
+    // Cached token might have gone stale server-side before our local TTL
+    // caught up — one retry with a forced fresh login before giving up.
+    if (response.status === 401) {
+      const freshToken = await auth(true);
+      response = await fetch(`${TOPSTEPX_API}/api/History/retrieveBars`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          accept: "application/json",
+          Authorization: `Bearer ${freshToken}`,
+        },
+        body: JSON.stringify({
+          contractId,
+          live: false,
+          startTime,
+          endTime,
+          unit,
+          unitNumber,
+          limit: 20000,
+          includePartialBar: false,
+        }),
+      });
+    }
 
     const text = await response.text();
     let data;
