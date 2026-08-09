@@ -1,5 +1,5 @@
-// ─── AI Coach — Per-Trade Review (OpenAI) ────────────────────────────────
-// Sends a single trade's data (+ screenshots, if present) to OpenAI, via
+// ─── AI Coach — Per-Trade Review (Gemini) ────────────────────────────────
+// Sends a single trade's data (+ screenshots, if present) to Gemini, via
 // api/analyze-trade-review.js, for a structured coaching review. Separate
 // from coachAnalysis.js since this one costs API tokens and requires
 // network access.
@@ -28,7 +28,7 @@ function buildPrompt(tradeContext, hasScreenshots) {
 }
 
 /**
- * Sends a trade to OpenAI (api/analyze-trade-review.js) for review.
+ * Sends a trade to Gemini (api/analyze-trade-review.js) for review.
  * `trade.screenshots` should already be loaded (call dbFetchScreenshots
  * first if trade.screenshotsLoaded is false) — this function does not
  * lazy-load them itself.
@@ -38,13 +38,12 @@ export async function reviewTradeWithAI(trade) {
   const hasScreenshots = trade.screenshots && trade.screenshots.length > 0;
   const prompt = buildPrompt(tradeContext, hasScreenshots);
 
-  // Screenshots are already stored as data URLs (see db.js) — OpenAI's
-  // Responses API takes those directly as input_image, no reformatting
-  // needed (Anthropic's format required splitting into base64 + media_type
-  // separately; OpenAI just wants the data URL as-is).
+  // Screenshots are already stored as data URLs (see db.js) — sent as-is
+  // to api/analyze-trade-review.js, which parses the mime type + base64
+  // payload out of each data URL server-side before calling Gemini.
   const images = hasScreenshots ? trade.screenshots.map(ss => ss.data) : [];
 
-  const secret = import.meta.env.VITE_CRON_SECRET || "";
+  const secret = (import.meta.env.VITE_CRON_SECRET || "").trim();
   const res = await fetch(`${window.location.origin}/api/analyze-trade-review`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${secret}` },

@@ -1,11 +1,11 @@
-// ─── AI Coach — Trading Edge Report (OpenAI) ─────────────────────────────
+// ─── AI Coach — Trading Edge Report (Gemini) ─────────────────────────────
 // Sends completed trades (one entry per paired position, never raw
 // TopstepX fills) + deterministic stats to api/analyze-trades.js, which
-// calls OpenAI server-side. The OpenAI key never touches the browser.
+// calls Gemini server-side. The Gemini key never touches the browser.
 //
 // Every statistic here comes from the project's existing analytics.js —
 // the same functions Analytics/PerformanceDashboard/ProfessionalStats
-// already use — so OpenAI is reasoning over numbers this app already
+// already use — so Gemini is reasoning over numbers this app already
 // trusts, not being asked to redo the arithmetic itself.
 
 import {
@@ -71,7 +71,7 @@ function sanitizeTrade(t) {
 }
 
 /**
- * Generates a full-history "Trading Edge" report via OpenAI
+ * Generates a full-history "Trading Edge" report via Gemini
  * (api/analyze-trades.js). `trades` is the raw trade list from state —
  * this groups into completed positions and sanitizes internally.
  */
@@ -79,7 +79,7 @@ export async function generateTradingEdgeReport(trades) {
   const completedTrades = groupIntoLogicalTrades(trades).map(sanitizeTrade);
   const calculatedStats = buildCalculatedStats(trades);
 
-  const secret = import.meta.env.VITE_CRON_SECRET || "";
+  const secret = (import.meta.env.VITE_CRON_SECRET || "").trim();
   const res = await fetch(`${window.location.origin}/api/analyze-trades`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${secret}` },
