@@ -19,7 +19,7 @@ export default function RulesChecklist({ checkedRules, setCheckedRules }) {
       <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 14, padding: "20px 24px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#f5c842", letterSpacing: 3, textTransform: "uppercase", marginBottom: 4 }}>Trading Rules &amp; Pre-Trade Checklist</div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>26 rules across 5 categories. Use the pre-trade checklist before every entry.</div>
+          <div style={{ fontSize: 11, color: "#6b7280" }}>Use the pre-trade checklist before every entry.</div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: "#8b949e" }}>{checked} / {total} pre-trade checks</span>
