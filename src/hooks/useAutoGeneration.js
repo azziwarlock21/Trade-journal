@@ -63,11 +63,16 @@ export function useAutoGeneration(trades, onUpdateTrade) {
         try {
           const bars = await fetchExecutionBars(working);
           const r = computeMaeMfe(bars, working);
-          working = { ...working, mae: r.mae, mfe: r.mfe };
+          working = { ...working, mae: r.mae, mfe: r.mfe, _autoMaeMfeError: undefined };
           await dbUpdate(working);
           onUpdateTrade(working);
         } catch (e) {
           console.error(`Auto MAE/MFE failed for trade ${working.id}: ${e.message}`);
+          // Surface it in the UI too — not persisted to DB, just so the
+          // MaeMfeCalculator can show *why* it's stuck instead of forcing
+          // a trip to the browser console every time.
+          working = { ...working, _autoMaeMfeError: e.message };
+          onUpdateTrade(working);
         }
       }
 
@@ -78,11 +83,13 @@ export function useAutoGeneration(trades, onUpdateTrade) {
           const url = await dbUploadChart(working.id, tf, dataUrl);
           const entry = { type: "generated", timeframe: tf, url, name: `trade-${working.id}-${tf}.png`, generated_at: new Date().toISOString() };
           const generatedCharts = [...(working.generatedCharts || []).filter(c => c.timeframe !== tf), entry];
-          working = { ...working, generatedCharts, chartStatus: "ok" };
+          working = { ...working, generatedCharts, chartStatus: "ok", _autoChartError: undefined };
           await dbUpdate(working);
           onUpdateTrade(working);
         } catch (e) {
           console.error(`Auto chart generation failed for trade ${working.id} [${tf}]: ${e.message}`);
+          working = { ...working, _autoChartError: `${tf}: ${e.message}` };
+          onUpdateTrade(working);
         }
       }
 
