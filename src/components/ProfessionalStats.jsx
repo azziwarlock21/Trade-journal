@@ -15,7 +15,7 @@ import BarRow from "./BarRow.jsx";
 // size is always shown so a stat from 2 trades doesn't get mistaken for a
 // stat from 50.
 
-export default function ProfessionalStats({ trades }) {
+export default function ProfessionalStats({ trades = [] }) {
   const byWeekday = useMemo(() => computeByWeekday(trades), [trades]);
   const byHour = useMemo(() => computeByHour(trades), [trades]);
   const byDirection = useMemo(() => computeByDirection(trades), [trades]);
@@ -23,7 +23,7 @@ export default function ProfessionalStats({ trades }) {
   const excursion = useMemo(() => computeExcursionStats(trades), [trades]);
   const byHoldTime = useMemo(() => computeByHoldTime(trades), [trades]);
 
-  if (!trades.length) return null;
+  if (!Array.isArray(trades) || trades.length === 0) return null;
 
   const sortByWR = (obj) => Object.entries(obj).sort((a, b) => (b[1].wins / b[1].total) - (a[1].wins / a[1].total));
 
