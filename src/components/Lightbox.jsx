@@ -13,11 +13,18 @@ export default function Lightbox({ src, onClose }) {
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const dragRef = useRef({ dragging: false, startX: 0, startY: 0, ox: 0, oy: 0 });
+  const pinchRef = useRef({ pinching: false, startDist: 0, startZoom: 1 });
   const lastTap = useRef(0);
 
   if (!src) return null;
 
   const close = () => { onClose(); setZoom(1); setOffset({ x: 0, y: 0 }); };
+
+  const touchDist = (touches) => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+  };
 
   const handleWheel = (e) => {
     e.preventDefault();
@@ -51,13 +58,25 @@ export default function Lightbox({ src, onClose }) {
   };
   const handleMouseUp = () => { dragRef.current.dragging = false; };
 
+  // Two-finger pinch to zoom, single-finger drag to pan. Pinch takes
+  // priority the moment a second finger lands; dropping back to one
+  // finger resumes panning from wherever the pinch left off.
   const handleTouchStart = (e) => {
-    if (e.touches.length === 1) {
+    if (e.touches.length === 2) {
+      dragRef.current.dragging = false;
+      pinchRef.current = { pinching: true, startDist: touchDist(e.touches), startZoom: zoom };
+    } else if (e.touches.length === 1) {
+      pinchRef.current.pinching = false;
       dragRef.current = { dragging: true, startX: e.touches[0].clientX, startY: e.touches[0].clientY, ox: offset.x, oy: offset.y };
     }
   };
   const handleTouchMove = (e) => {
-    if (e.touches.length === 1 && dragRef.current.dragging) {
+    if (e.touches.length === 2 && pinchRef.current.pinching) {
+      e.preventDefault();
+      const dist = touchDist(e.touches);
+      const scale = dist / (pinchRef.current.startDist || dist);
+      setZoom(Math.min(Math.max(pinchRef.current.startZoom * scale, 0.5), 8));
+    } else if (e.touches.length === 1 && dragRef.current.dragging) {
       e.preventDefault();
       setOffset({
         x: dragRef.current.ox + (e.touches[0].clientX - dragRef.current.startX),
@@ -65,7 +84,15 @@ export default function Lightbox({ src, onClose }) {
       });
     }
   };
-  const handleTouchEnd = () => { dragRef.current.dragging = false; };
+  const handleTouchEnd = (e) => {
+    if (e.touches.length < 2) pinchRef.current.pinching = false;
+    if (e.touches.length === 1) {
+      // Resume single-finger panning from the finger that's still down.
+      dragRef.current = { dragging: true, startX: e.touches[0].clientX, startY: e.touches[0].clientY, ox: offset.x, oy: offset.y };
+    } else if (e.touches.length === 0) {
+      dragRef.current.dragging = false;
+    }
+  };
 
   const zoomIn = (e) => { e.stopPropagation(); setZoom(z => Math.min(z + 0.5, 8)); };
   const zoomOut = (e) => {
@@ -121,7 +148,7 @@ export default function Lightbox({ src, onClose }) {
       />
 
       <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", fontSize: 10, color: "#374151", letterSpacing: 1, whiteSpace: "nowrap" }}>
-        SCROLL TO ZOOM · DRAG TO PAN · DOUBLE-TAP TO TOGGLE ZOOM · TAP TO CLOSE
+        SCROLL OR PINCH TO ZOOM · DRAG TO PAN · DOUBLE-TAP TO TOGGLE ZOOM · TAP TO CLOSE
       </div>
     </div>
   );

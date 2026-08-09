@@ -7,11 +7,16 @@ import { TIMEFRAMES, PRIMARY_TIMEFRAMES, DEFAULT_TIMEFRAME } from "../utils/time
 // ─── GeneratedChart ─────────────────────────────────────────────────────
 // Multi-timeframe chart reconstruction for a single trade: 1D / 4H / 1H /
 // 15m / 5m (in strategy-priority order), plus the original 1m view kept
-// working but no longer the default. Switching tabs never re-fetches or
-// re-renders an already-saved timeframe — it just swaps which stored image
-// is shown. Generating a *new* timeframe still goes through an explicit
-// Preview → Save step so nothing lands in Storage/the trades table without
-// a look first.
+// working but no longer the default.
+//
+// Generation itself now runs automatically in the background (see
+// useAutoGeneration.js) — nothing to click for the normal case. This
+// component just displays whatever's already been generated per timeframe
+// tab, shows a lightweight "generating…" state while the background hook
+// is working on this trade, and keeps a small de-emphasized "Regenerate"
+// link per tab as a manual override/retry (still goes through the same
+// Preview → Save flow so a manual regenerate is still verified before
+// overwriting a saved chart).
 //
 // Tabs read/write trade.generatedCharts, an array of
 // { type: "generated", timeframe, url, name } — one entry per timeframe,
@@ -25,11 +30,10 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
   const [error, setError] = useState("");
   const [previewDataUrl, setPreviewDataUrl] = useState(null);
   const [meta, setMeta] = useState(null);
-  const [bulkRunning, setBulkRunning] = useState(false);
-  const [bulkProgress, setBulkProgress] = useState(null);
 
   const canGenerate = !!trade.contractId && !!trade.entryDatetimeUtc && !!trade.exitDatetimeUtc;
   const chartsByTf = Object.fromEntries((trade.generatedCharts || []).map(c => [c.timeframe, c]));
+  const autoGenerating = trade.chartStatus === "generating";
 
   const switchTab = (tf) => {
     setActiveTab(tf);
@@ -39,17 +43,13 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
     setMeta(null);
   };
 
-  const generateOne = async (timeframe) => {
-    const bars = await fetchTradeBars(trade, { timeframe });
-    return renderTradeChart({ bars, trade, timeframe });
-  };
-
   const handleGeneratePreview = async () => {
     setStatus("loading");
     setError("");
     setPreviewDataUrl(null);
     try {
-      const { dataUrl, entryIndex, exitIndex, barCount } = await generateOne(activeTab);
+      const bars = await fetchTradeBars(trade, { timeframe: activeTab });
+      const { dataUrl, entryIndex, exitIndex, barCount } = renderTradeChart({ bars, trade, timeframe: activeTab });
       setPreviewDataUrl(dataUrl);
       setMeta({ barCount, entryFound: entryIndex >= 0, exitFound: exitIndex >= 0 });
       setStatus("previewed");
@@ -59,24 +59,16 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
     }
   };
 
-  const persistChart = async (timeframe, dataUrl, baseTrade) => {
-    const url = await dbUploadChart(baseTrade.id, timeframe, dataUrl);
-    const entry = { type: "generated", timeframe, url, name: `trade-${baseTrade.id}-${timeframe}.png`, generated_at: new Date().toISOString() };
-    const generatedCharts = [
-      ...(baseTrade.generatedCharts || []).filter(c => c.timeframe !== timeframe),
-      entry,
-    ];
-    const updated = { ...baseTrade, generatedCharts, chartStatus: "ok" };
-    await dbUpdate(updated);
-    return updated;
-  };
-
   const handleSave = async () => {
     if (!previewDataUrl) return;
     setStatus("saving");
     setError("");
     try {
-      const updated = await persistChart(activeTab, previewDataUrl, trade);
+      const url = await dbUploadChart(trade.id, activeTab, previewDataUrl);
+      const entry = { type: "generated", timeframe: activeTab, url, name: `trade-${trade.id}-${activeTab}.png`, generated_at: new Date().toISOString() };
+      const generatedCharts = [...(trade.generatedCharts || []).filter(c => c.timeframe !== activeTab), entry];
+      const updated = { ...trade, generatedCharts, chartStatus: "ok" };
+      await dbUpdate(updated);
       onUpdate?.(updated);
       setPreviewDataUrl(null);
       setStatus("idle");
@@ -90,30 +82,6 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
     setPreviewDataUrl(null);
     setMeta(null);
     setStatus("idle");
-  };
-
-  // Generates + saves all 5 primary timeframes back-to-back for this trade.
-  // Each still goes through the same native-bar fetch + deterministic
-  // render as the single-timeframe flow — this just automates the button
-  // presses, it doesn't skip the underlying steps.
-  const handleGenerateAll = async () => {
-    setBulkRunning(true);
-    setError("");
-    let current = trade;
-    for (let i = 0; i < PRIMARY_TIMEFRAMES.length; i++) {
-      const tf = PRIMARY_TIMEFRAMES[i];
-      setBulkProgress({ tf, i: i + 1, total: PRIMARY_TIMEFRAMES.length });
-      try {
-        const { dataUrl } = await generateOne(tf);
-        current = await persistChart(tf, dataUrl, current);
-        onUpdate?.(current);
-      } catch (e) {
-        setError(`${tf} failed: ${e.message}`);
-        break;
-      }
-    }
-    setBulkProgress(null);
-    setBulkRunning(false);
   };
 
   if (!canGenerate) {
@@ -166,13 +134,11 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
           ))}
         </div>
 
-        <button
-          onClick={handleGenerateAll}
-          disabled={bulkRunning}
-          style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 6, border: "1px solid #3b82f655", background: "rgba(59,130,246,0.08)", color: "#3b82f6", fontSize: 10, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer", fontFamily: "inherit" }}
-        >
-          {bulkRunning ? `Generating ${bulkProgress?.tf || "…"} (${bulkProgress?.i}/${bulkProgress?.total})` : "Generate All 5 (1D→4H→1H→15m→5m)"}
-        </button>
+        {autoGenerating && (
+          <span style={{ marginLeft: "auto", fontSize: 10, color: "#3b82f6" }}>
+            Auto-generating charts…
+          </span>
+        )}
       </div>
 
       {TIMEFRAMES[activeTab]?.purpose && (
@@ -180,7 +146,7 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
       )}
 
       {activeExisting && status === "idle" && (
-        <div style={{ marginBottom: 10 }}>
+        <div style={{ marginBottom: 6 }}>
           <img
             src={activeExisting.url}
             alt={`Generated ${activeTab} chart`}
@@ -190,10 +156,18 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
         </div>
       )}
 
-      {status === "idle" && (
-        <button onClick={handleGeneratePreview} disabled={bulkRunning} style={btnStyle("#3b82f6")}>
-          {activeExisting ? `Regenerate ${activeTab} Preview` : `Generate ${activeTab} Chart`}
-        </button>
+      {/* Not generated yet — background hook (useAutoGeneration) will pick
+          this up automatically, no click needed. Manual trigger stays
+          available as a small link in case someone wants it sooner. */}
+      {!activeExisting && status === "idle" && (
+        <div style={{ fontSize: 11, color: "#6b7280" }}>
+          {autoGenerating ? "Generating…" : "Queued for automatic generation."}{" "}
+          <button onClick={handleGeneratePreview} style={linkStyle}>Generate now</button>
+        </div>
+      )}
+
+      {activeExisting && status === "idle" && (
+        <button onClick={handleGeneratePreview} style={linkStyle}>Regenerate {activeTab}</button>
       )}
 
       {status === "loading" && (
@@ -201,20 +175,17 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
       )}
 
       {status === "error" && (
-        <div style={{ fontSize: 11, color: "#ff4d6d", marginBottom: 8 }}>{error}</div>
-      )}
-      {status === "error" && (
-        <button onClick={handleGeneratePreview} style={btnStyle("#3b82f6")}>Try Again</button>
-      )}
-      {bulkRunning === false && error && status !== "error" && (
-        <div style={{ fontSize: 11, color: "#ff4d6d", marginBottom: 8 }}>{error}</div>
+        <>
+          <div style={{ fontSize: 11, color: "#ff4d6d", marginBottom: 8 }}>{error}</div>
+          <button onClick={handleGeneratePreview} style={btnStyle("#3b82f6")}>Try Again</button>
+        </>
       )}
 
       {(status === "previewed" || status === "saving") && previewDataUrl && (
         <div>
           <div style={{ fontSize: 11, color: meta?.entryFound && meta?.exitFound ? "#00e5a0" : "#f5c842", marginBottom: 6 }}>
             {meta?.entryFound && meta?.exitFound
-              ? `✓ Entry and exit both matched to a ${activeTab} bar (${meta.barCount} bars loaded). Check the markers against the actual entry/exit before saving.`
+              ? `✓ Entry and exit both matched to a ${activeTab} bar (${meta.barCount} bars loaded).`
               : `⚠ Entry or exit fell outside the fetched bar range (${meta?.barCount ?? 0} bars) — don't save until this looks right.`}
           </div>
           <img
@@ -235,6 +206,17 @@ export default function GeneratedChart({ trade, onUpdate, openLightbox }) {
     </div>
   );
 }
+
+const linkStyle = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  color: "#6b7280",
+  fontSize: 10,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  textDecoration: "underline",
+};
 
 function btnStyle(bg, color = "#0d1117", outline = false) {
   return {
