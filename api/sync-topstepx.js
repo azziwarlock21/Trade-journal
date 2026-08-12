@@ -277,11 +277,7 @@ async function getEpochStart() {
 
 async function setEpochStart(t) {
   const body = JSON.stringify({ id: "topstepx_epoch_start", last_sync: t.toISOString(), updated_at: new Date().toISOString() });
-  try {
-    await sbFetch(`/sync_log?id=eq.topstepx_epoch_start`, { method: "PATCH", headers: { "Prefer": "return=minimal" }, body });
-  } catch(e) {
-    await sbFetch(`/sync_log`, { method: "POST", headers: { "Prefer": "return=minimal" }, body });
-  }
+  await sbFetch(`/sync_log`, { method: "POST", headers: { "Prefer": "resolution=merge-duplicates,return=minimal" }, body });
 }
 
 async function getLastSyncTime(forceFrom) {
