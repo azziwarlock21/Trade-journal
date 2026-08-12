@@ -11,6 +11,11 @@ export default function SyncStatusToast({ syncStatus, onDismiss }) {
           <span style={{ color: "#ff4d6d", fontWeight: 700 }}>✕ Sync failed:</span>
           <span style={{ color: "#9ca3af" }}>{syncStatus.error}</span>
         </>
+      ) : syncStatus.reactivated ? (
+        <>
+          <span style={{ color: "#00e5a0", fontWeight: 700 }}>✓ Account reactivated</span>
+          <span style={{ color: "#9ca3af" }}>old trades cleared — journal starts fresh from here</span>
+        </>
       ) : (
         <>
           <span style={{ color: "#00e5a0", fontWeight: 700 }}>✓ TopstepX synced</span>

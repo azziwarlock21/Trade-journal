@@ -9,7 +9,7 @@ export default function Header({
   view, onViewChange, tradeCount,
   syncing, syncError,
   onExportCSV, onImportCSV,
-  syncRunning, onSyncNew, onSyncFull,
+  syncRunning, onSyncNew, onSyncFull, onReactivate,
 }) {
   const syncIndicator = syncing
     ? <span style={{ fontSize: 10, color: "#f5c842", letterSpacing: 1 }}>saving...</span>
@@ -52,6 +52,10 @@ export default function Header({
         <button onClick={onSyncFull} disabled={syncRunning} title="Reset and re-import all TopstepX trades"
           style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #a78bfa44", background: "transparent", color: syncRunning ? "#6b7280" : "#a78bfa", fontSize: 10, fontWeight: 700, cursor: syncRunning ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
           TSX Full
+        </button>
+        <button onClick={onReactivate} disabled={syncRunning} title="Account was blown and reactivated — wipe old trades and start fresh"
+          style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #ff4d6d44", background: "transparent", color: syncRunning ? "#6b7280" : "#ff4d6d", fontSize: 10, fontWeight: 700, cursor: syncRunning ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+          Reactivate
         </button>
       </div>
     </div>
