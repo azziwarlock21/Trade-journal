@@ -37,5 +37,30 @@ export function useTopstepXSync(setTrades) {
     }
   }, [setTrades]);
 
-  return { syncStatus, setSyncStatus, syncRunning, triggerSync };
+  // Wipes every TopstepX-imported (Live) trade and plants a new epoch-start
+  // floor server-side, so a blown-then-reactivated account starts clean and
+  // no future sync — including "TSX Full" — can pull its old fills back in.
+  const reactivateAccount = useCallback(async () => {
+    setSyncRunning(true); setSyncStatus(null);
+    try {
+      const secret = import.meta.env.VITE_CRON_SECRET || "";
+      const base = window.location.origin;
+      const res = await fetch(`${base}/api/sync-topstepx`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${secret}` },
+        body: JSON.stringify({ reactivate: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Reactivate failed");
+      const fresh = await dbFetchAll();
+      setTrades(fresh);
+      setSyncStatus({ synced: 0, error: null, reactivated: true });
+    } catch (e) {
+      setSyncStatus({ synced: 0, error: e.message });
+    } finally {
+      setSyncRunning(false);
+    }
+  }, [setTrades]);
+
+  return { syncStatus, setSyncStatus, syncRunning, triggerSync, reactivateAccount };
 }
