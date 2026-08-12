@@ -51,7 +51,7 @@ export default function GCJournal() {
   const fin = useFinancialData();
 
   // ── TopstepX sync ─────────────────────────────────────────────────────────
-  const { syncStatus, setSyncStatus, syncRunning, triggerSync } = useTopstepXSync(trades.setTrades);
+  const { syncStatus, setSyncStatus, syncRunning, triggerSync, reactivateAccount } = useTopstepXSync(trades.setTrades);
 
   // ── Analytics tab local state (mode/month filters + calendar) ────────────
   const [analyticsMode, setAnalyticsMode] = useState("All");
