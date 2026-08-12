@@ -12,8 +12,6 @@ const TSX_API_KEY    = process.env.TOPSTEPX_API_KEY;
 const TSX_ACCOUNT_ID = process.env.TOPSTEPX_ACCOUNT_ID;
 const CRON_SECRET    = process.env.CRON_SECRET || "";
 
-import { tryComputeMaeMfe } from "./_lib/maeMfeServer.js";
-
 // ── Supabase ──────────────────────────────────────────────────────────────────
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -96,43 +94,22 @@ async function tsxFetchFills(token, accountId, from, to) {
 }
 
 // ── Timezone ──────────────────────────────────────────────────────────────────
-// NOTE: the previous implementation inferred DST from the *server's own*
-// local timezone offset (`Date.getTimezoneOffset()`), which only works if
-// the server happens to run in a US timezone. On Vercel the server runs in
-// UTC, where getTimezoneOffset() is always 0 for every month — so `dst` was
-// always false and every trade got tagged EST (-5), even in the middle of
-// summer (should be EDT, -4). That shifted every entry/exit time (and every
-// session label) by an hour for roughly 8 months of the year.
-//
-// Fixed by asking the ICU timezone database directly for America/New_York's
-// wall-clock time, which bakes in the correct DST rule for the given date
-// regardless of what timezone the server process itself is running in.
 function toET(iso) {
-  return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  })
-    .format(new Date(iso))
-    .replace(" ", "T");
+  const d   = new Date(iso);
+  const jan = new Date(d.getFullYear(), 0, 1).getTimezoneOffset();
+  const jul = new Date(d.getFullYear(), 6, 1).getTimezoneOffset();
+  const dst = d.getTimezoneOffset() < Math.max(jan, jul);
+  const et  = new Date(d.getTime() + (dst ? -4 : -5) * 3600000);
+  return et.toISOString().slice(0, 16);
 }
 
 function getSession(iso) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date(iso));
-
-  const hour = Number(parts.find(p => p.type === "hour")?.value || 0);
-  const minute = Number(parts.find(p => p.type === "minute")?.value || 0);
-  const m = hour * 60 + minute;
-
+  const d   = new Date(iso);
+  const jan = new Date(d.getFullYear(), 0, 1).getTimezoneOffset();
+  const jul = new Date(d.getFullYear(), 6, 1).getTimezoneOffset();
+  const dst = d.getTimezoneOffset() < Math.max(jan, jul);
+  const et  = new Date(d.getTime() + (dst ? -4 : -5) * 3600000);
+  const m   = et.getUTCHours() * 60 + et.getUTCMinutes();
   if (m >= 1080 || m < 180) return "Asia";
   if (m < 480)              return "London";
   if (m < 720)              return "London/NY Overlap";
@@ -158,10 +135,10 @@ function getPV(contractId) {
 // then 2 SELL closes at same timestamp (4744.3), each with own P&L.
 // → 2 separate Long trades, NOT one 2-contract trade.
 
-function pairFills(fills, token) {
+function pairFills(fills) {
   const openBuys  = [];   // queue of BUY open fills (will be closed by SELL)
   const openSells = [];   // queue of SELL open fills (will be closed by BUY)
-  const tradePromises = [];
+  const trades    = [];
 
   for (let i = 0; i < fills.length; i++) {
     const f       = fills[i];
@@ -194,7 +171,7 @@ function pairFills(fills, token) {
       const points    = parseFloat((pnl / (pv * contracts)).toFixed(1));
       const outcome   = pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven";
 
-      tradePromises.push(buildTrade(openFill, f, direction, entry, exit, contracts, pnl, points, outcome, pv, token));
+      trades.push(buildTrade(openFill, f, direction, entry, exit, contracts, pnl, points, outcome, pv));
 
     } else {
       // BUY close = closing a Short (matched against oldest SELL open)
@@ -209,7 +186,7 @@ function pairFills(fills, token) {
       const points    = parseFloat((pnl / (pv * contracts)).toFixed(1));
       const outcome   = pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven";
 
-      tradePromises.push(buildTrade(openFill, f, direction, entry, exit, contracts, pnl, points, outcome, pv, token));
+      trades.push(buildTrade(openFill, f, direction, entry, exit, contracts, pnl, points, outcome, pv));
     }
   }
 
@@ -217,10 +194,10 @@ function pairFills(fills, token) {
   if (openBuys.length)  console.log(`${openBuys.length} open BUY(s) remaining — positions still live`);
   if (openSells.length) console.log(`${openSells.length} open SELL(s) remaining — positions still live`);
 
-  return Promise.all(tradePromises);
+  return trades;
 }
 
-async function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl, points, outcome, pv, token) {
+function buildTrade(openFill, closeFill, direction, entry, exit, contracts, pnl, points, outcome, pv) {
   const fees     = (openFill.fees || 0) + (closeFill.fees || 0);
   const isMicro  = (openFill.contractId || "").includes("MGC");
   const tsxId    = [openFill.id, closeFill.id].sort().join("_");
@@ -254,41 +231,10 @@ async function buildTrade(openFill, closeFill, direction, entry, exit, contracts
     ` | ${outcome} | ${toET(openFill.creationTimestamp)}`
   );
 
-  const entryUtc = new Date(openFill.creationTimestamp).toISOString();
-  const exitUtc  = new Date(closeFill.creationTimestamp).toISOString();
-
-  // Computed automatically at import time from actual 1-minute bars over
-  // the entry→exit window — no manual "Auto-Calculate" step needed per
-  // trade. Never blocks the import: falls back to null on any failure
-  // (rate limit, contract lookup miss, etc.), same as chart generation.
-  const maeMfe = await tryComputeMaeMfe(token, openFill.contractId, entryUtc, exitUtc, entry, direction);
-
   return {
     id:               Date.now() + Math.floor(Math.random() * 999999),
-
-    // Exact TopstepX contract identifier for this fill — required to look
-    // up historical OHLCV bars for chart reconstruction later.
-    contract_id:      openFill.contractId || null,
-
     entry_datetime:   toET(openFill.creationTimestamp),
     exit_datetime:    toET(closeFill.creationTimestamp),
-
-    // Raw UTC fill timestamps, kept verbatim (no ET conversion, no
-    // ambiguity). entry_datetime/exit_datetime above are ET wall-clock
-    // strings with no offset — they're fine for display, but converting
-    // them *back* to UTC to query historical bars would require re-deriving
-    // the DST rule for that date. Storing the original UTC instant up front
-    // avoids that round-trip entirely and is what chart reconstruction
-    // should key off of.
-    entry_datetime_utc: entryUtc,
-    exit_datetime_utc:  exitUtc,
-
-    // Chart reconstruction state — populated later by the client when it
-    // calls /api/get-trade-bars and renders/uploads a chart. Never blocks
-    // the trade import itself.
-    generated_charts: [],
-    chart_status:      "pending",
-
     direction,
     lot_size:         contracts,
     entry_price:      entry,
@@ -297,8 +243,7 @@ async function buildTrade(openFill, closeFill, direction, entry, exit, contracts
     points:           String(points),
     rrr:              rrr,
     outcome,
-    mae:              maeMfe?.mae ?? null,
-    mfe:              maeMfe?.mfe ?? null,
+    mae:              null,
     session:          getSession(openFill.creationTimestamp),
     trade_mode:       "Live",
     grade:            "Ungraded",
@@ -317,14 +262,40 @@ async function buildTrade(openFill, closeFill, direction, entry, exit, contracts
 }
 
 // ── Sync log ──────────────────────────────────────────────────────────────────
+// `topstepx_epoch_start`, when set, is a hard floor on how far back any sync
+// (including a full "TSX Full" reset) is allowed to reach. It's set by
+// reactivateAccount() below whenever the account is wiped and restarted, so
+// a blown-then-reactivated account can never re-pull fills from its dead
+// epoch again — even after a sync_log reset.
+async function getEpochStart() {
+  try {
+    const rows = await sbFetch(`/sync_log?select=last_sync&id=eq.topstepx_epoch_start&limit=1`);
+    if (rows?.[0]?.last_sync) return new Date(rows[0].last_sync);
+  } catch(e) { /* none set */ }
+  return null;
+}
+
+async function setEpochStart(t) {
+  const body = JSON.stringify({ id: "topstepx_epoch_start", last_sync: t.toISOString(), updated_at: new Date().toISOString() });
+  try {
+    await sbFetch(`/sync_log?id=eq.topstepx_epoch_start`, { method: "PATCH", headers: { "Prefer": "return=minimal" }, body });
+  } catch(e) {
+    await sbFetch(`/sync_log`, { method: "POST", headers: { "Prefer": "return=minimal" }, body });
+  }
+}
+
 async function getLastSyncTime(forceFrom) {
-  if (forceFrom) return new Date(forceFrom);
+  if (forceFrom) return new Date(forceFrom); // explicit manual override — not clamped
+  let from;
   try {
     const rows = await sbFetch(`/sync_log?select=last_sync&id=eq.topstepx&limit=1`);
-    if (rows?.[0]?.last_sync) return new Date(rows[0].last_sync);
-  } catch(e) { /* first run */ }
-  // Default: go back 1 year to catch full history
-  return new Date("2026-01-01T00:00:00.000Z");
+    from = rows?.[0]?.last_sync ? new Date(rows[0].last_sync) : new Date("2026-01-01T00:00:00.000Z");
+  } catch(e) {
+    from = new Date("2026-01-01T00:00:00.000Z"); // first run
+  }
+  const epochStart = await getEpochStart();
+  if (epochStart && epochStart > from) from = epochStart;
+  return from;
 }
 
 async function setLastSyncTime(t) {
@@ -334,6 +305,19 @@ async function setLastSyncTime(t) {
   } catch(e) {
     await sbFetch(`/sync_log`, { method: "POST", headers: { "Prefer": "return=minimal" }, body });
   }
+}
+
+// ── Reactivate ────────────────────────────────────────────────────────────────
+// Called when a blown account is reactivated and the user wants a totally
+// clean slate: wipes every trade the journal ever imported from TopstepX,
+// then plants an epoch-start floor at "now" so no future sync — including a
+// full reset — can ever reach back into the dead account's history again.
+async function reactivateAccount() {
+  const now = new Date();
+  await sbFetch(`/trades?trade_mode=eq.Live`, { method: "DELETE", headers: { "Prefer": "return=minimal" } });
+  await setEpochStart(now);
+  await setLastSyncTime(now);
+  return now;
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -349,7 +333,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { resetSync, forceFrom } = req.body || {};
+    const { resetSync, forceFrom, reactivate } = req.body || {};
+
+    if (reactivate) {
+      console.log("Reactivating account — wiping Live trades and setting new epoch start");
+      const epoch = await reactivateAccount();
+      return res.status(200).json({ success: true, synced: 0, reactivated: true, epochStart: epoch.toISOString() });
+    }
 
     if (resetSync) {
       console.log("Full reset — clearing sync log");
@@ -373,7 +363,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, synced: 0, message: "No fills" });
     }
 
-    const trades = await pairFills(fills, token);
+    const trades = pairFills(fills);
     console.log(`${trades.length} trades paired`);
 
     // Dedup
