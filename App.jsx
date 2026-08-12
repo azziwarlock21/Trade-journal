@@ -123,6 +123,11 @@ export default function GCJournal() {
         onExportCSV={handleExportCSV}
         onImportCSV={handleImportCSV}
         syncRunning={syncRunning}
+        onReactivate={() => {
+        if (window.confirm("This permanently deletes every TopstepX-synced trade in your journal and starts fresh. Old trades will NOT come back on future syncs. Continue?")) {
+        reactivateAccount();
+       }
+     }}
         onSyncNew={() => triggerSync(false)}
         onSyncFull={() => {
           if (window.confirm("This clears the sync history and re-imports ALL trades from TopstepX. Continue?")) {
